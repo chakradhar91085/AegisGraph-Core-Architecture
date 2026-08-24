@@ -1,0 +1,45 @@
+from pydantic import BaseModel, Field
+from typing import Dict, Any, List, Optional
+from enum import Enum
+import time
+
+class RiskLevel(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+class AdaptivePolicy(BaseModel):
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+    risk_level: RiskLevel
+    attenuation_factor: float = Field(..., ge=0.0, le=1.0)
+    effective_context_limit: int = Field(..., ge=1)
+    effective_graph_depth: int = Field(..., ge=0)
+class SignalValues(BaseModel):
+    semantic_drift: float = Field(0.0, ge=0.0, le=1.0)
+    temporal_frequency: float = Field(0.0, ge=0.0, le=1.0)
+    entity_focus: float = Field(0.0, ge=0.0, le=1.0)
+    graph_footprint: float = Field(0.0, ge=0.0, le=1.0)
+
+class TelemetryEvent(BaseModel):
+    session_id: str
+    timestamp: float = Field(default_factory=time.time)
+    query: str
+    intent: Optional[str] = None
+    retrieval_strategy: Optional[str] = None
+    result_count: int = 0
+    signals: SignalValues = Field(default_factory=SignalValues)
+    instantaneous_risk: float = Field(0.0, ge=0.0, le=1.0)
+    smoothed_risk: float = Field(0.0, ge=0.0, le=1.0)
+    policy: Optional[AdaptivePolicy] = None
+    blocked_by_policy: bool = False
+
+class QueryRecord(BaseModel):
+    timestamp: float
+    query: str
+    embedding: Optional[List[float]] = None
+    entities: List[str] = Field(default_factory=list)
+
+class SessionState(BaseModel):
+    session_id: str
+    history: List[QueryRecord] = Field(default_factory=list)
+    last_smoothed_risk: float = 0.0
