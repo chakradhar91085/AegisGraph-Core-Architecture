@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 # We use the existing clients for direct DB/LLM tests
 from app.db.neo4j import neo4j_client
-from app.llm.ollama_client import ollama_client
+from app.llm.provider_factory import get_llm_provider
 
 API_URL = "http://127.0.0.1:8000/api/v1"
 
@@ -33,7 +33,8 @@ async def test_neo4j_connectivity() -> bool:
 async def test_ollama_connectivity() -> bool:
     print("--- Test C: Ollama connectivity ---")
     try:
-        healthy = await ollama_client.check_health()
+        provider = get_llm_provider("ollama")
+        healthy = await provider.check_health()
         print("Ollama Connectivity:", healthy)
         return healthy
     except Exception as e:

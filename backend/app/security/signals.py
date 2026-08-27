@@ -96,21 +96,25 @@ class Signals:
     @staticmethod
     def calculate_graph_footprint(intent: str, result_count: int) -> float:
         """
-        S_graph(t) = min(1, d_t / d_max + eta * v_t / v_max)
+        S_graph(t) = (d_t / d_max) + eta * (v_t / v_max)
         """
-        if result_count == 0:
-            return 0.0
-            
         depth_map = {
             "employee_lookup": 1,
             "received_emails": 2,
             "sent_emails": 2,
+            "frequent_communication": 2,
+            "topical_footprint": 2,
             "email_chunks": 3,
             "chunk_entities": 4,
+            "person_connection": 4,
             "entity_relationships": 5
         }
         
         d_t = depth_map.get(intent, 0)
+        
+        if d_t == 0:
+            return 0.0
+
         v_t = result_count
         
         d_max = float(settings.SECURITY_GRAPH_MAX_DEPTH)

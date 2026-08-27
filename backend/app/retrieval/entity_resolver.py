@@ -37,13 +37,14 @@ class EntityResolver:
         match = EMAIL_PATTERN.search(text)
         return match.group(0).lower() if match else None
 
-    async def resolve_employee(self, query: str) -> ResolvedEntity:
+    async def resolve_employee(self, query: str, extracted_params: dict = None, llm_provider: str | None = None) -> ResolvedEntity:
         """
         Attempt to resolve a user query to an Employee node.
 
         Strategy:
         1. If query contains an email address, try exact email match.
-        2. Otherwise, search by name.
+        2. Otherwise, search by name using deterministic heuristics.
+        3. If deterministic fails, use LLM extracted_params to try name lookups.
         """
         email = self.extract_email(query)
 
@@ -72,7 +73,10 @@ class EntityResolver:
             stopwords = [
                 "what", "emails", "did", "send", "receive", "who", "is",
                 "find", "employee", "sent", "by", "received", "from",
-                "look", "up", "search", "for", "the", "about", "tell", "me"
+                "look", "up", "search", "for", "the", "about", "tell", "me",
+                "does", "communicate", "with", "frequently", "topics", "frequent",
+                "mention", "belong", "to", "organization", "info", "information",
+                "were", "was", "discussed"
             ]
             for word in stopwords:
                 name_hint = re.sub(rf"\b{word}\b", "", name_hint)
@@ -98,13 +102,50 @@ class EntityResolver:
                 status=ResolutionStatus.AMBIGUOUS,
                 matches=results,
             )
-        else:
-            return ResolvedEntity(
-                type="employee",
-                query_value=email or name_hint,
-                status=ResolutionStatus.NOT_FOUND,
-                matches=[],
-            )
+            
+        # 3. LLM Fallback if NOT_FOUND deterministically
+        logger.debug(f"Deterministic entity resolution failed for {query!r}. Attempting LLM fallback.")
+        if not extracted_params:
+            from app.retrieval.schemas import RetrievalIntent
+            from app.llm.provider_factory import get_llm_provider
+            allowed_intents = [i.value for i in RetrievalIntent]
+            provider = get_llm_provider(llm_provider)
+            extracted_params = await provider.extract_query_parameters(query, allowed_intents)
+                
+        if extracted_params:
+            search_terms = extracted_params.get("search_terms", [])
+            primary_person = extracted_params.get("primary_person")
+            if primary_person and primary_person not in search_terms:
+                search_terms.insert(0, primary_person)
+                
+            for term in search_terms:
+                if not term or len(term.strip()) < 2:
+                    continue
+                term_results = await self.strategies.lookup_employee_by_name(term, limit=5)
+                if len(term_results) == 1:
+                    logger.info(f"LLM fallback successfully resolved entity: {term}")
+                    return ResolvedEntity(
+                        type="employee",
+                        query_value=term,
+                        status=ResolutionStatus.FOUND,
+                        matches=term_results,
+                    )
+                elif len(term_results) > 1:
+                    logger.info(f"LLM fallback resulted in ambiguous entity: {term}")
+                    return ResolvedEntity(
+                        type="employee",
+                        query_value=term,
+                        status=ResolutionStatus.AMBIGUOUS,
+                        matches=term_results,
+                    )
+        
+        logger.warning(f"Entity resolution completely failed for: {query!r}")
+        return ResolvedEntity(
+            type="employee",
+            query_value=email or name_hint,
+            status=ResolutionStatus.NOT_FOUND,
+            matches=[],
+        )
 
     async def resolve_entity(self, name: str) -> ResolvedEntity:
         """
@@ -124,10 +165,10 @@ class EntityResolver:
             clean_name = name.strip()
             
         query = """
-        MATCH (ent:Entity)
-        WHERE toLower(ent.name) CONTAINS toLower($name)
-        RETURN ent.entity_id AS entity_id, ent.name AS entity_name,
-               ent.entity_type AS entity_type
+        MATCH (t:Topic)
+        WHERE toLower(t.name) CONTAINS toLower($name)
+        RETURN t.name AS entity_id, t.name AS entity_name,
+               'Topic' AS entity_type
         LIMIT 5
         """
         results = await self.strategies.db.execute_read(query, {"name": clean_name})

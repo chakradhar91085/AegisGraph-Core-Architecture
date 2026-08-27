@@ -13,7 +13,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 class AegisSecurityService:
-    async def observe_query(self, session_id: str, query: str) -> Dict[str, Any]:
+    async def observe_query(self, session_id: str, query: str, role: str = "Standard") -> Dict[str, Any]:
         """
         Step 1: Pre-retrieval observation.
         Fetches embedding, calculates semantic drift, returns partial context.
@@ -38,11 +38,12 @@ class AegisSecurityService:
             
         # Calculate Adaptive Policy based on the smoothed risk BEFORE this query
         state = session_store.get_or_create_session(session_id)
-        current_policy = policy_engine.calculate_policy(state.last_smoothed_risk)
+        current_policy = policy_engine.calculate_policy(state.last_smoothed_risk, role)
             
         return {
             "session_id": session_id,
             "query": query,
+            "role": role,
             "timestamp": current_time,
             "embedding": current_embedding,
             "semantic_drift": semantic_drift,
@@ -69,23 +70,12 @@ class AegisSecurityService:
         # If it's employee_lookup, the entity is the name in the first result.
         
         entities = []
-        if retrieval_response.results:
-            if retrieval_response.strategy == "employee_lookup":
-                entities.append(retrieval_response.results[0].get("name", ctx["query"]))
-            elif retrieval_response.strategy in ("sent_emails", "received_emails"):
-                # The entity is the employee whose emails we are fetching.
-                # In phase 2, we don't have the employee name in the email result directly, but it's part of the intent.
-                # Let's just use the query string as a proxy for the entity if we can't extract it cleanly.
-                entities.append(ctx["query"])
-            elif retrieval_response.strategy == "chunk_entities":
-                # The entities are the actual entities returned
-                for row in retrieval_response.results:
-                    entities.append(row.get("entity_name", ""))
-            elif retrieval_response.strategy == "entity_relationships":
-                for row in retrieval_response.results:
-                    entities.append(row.get("entity_name", ""))
+        if hasattr(retrieval_response, "resolved_entities"):
+            for resolved in retrieval_response.resolved_entities:
+                if resolved.query_value:
+                    entities.append(resolved.query_value)
                     
-        # Filter out empty entities
+        # Filter out empty entities just in case
         entities = [e for e in entities if e]
         
         # Get history for temporal and entity calculations
@@ -130,6 +120,7 @@ class AegisSecurityService:
         )
         session_store.add_query_record(session_id, record)
         session_store.update_smoothed_risk(session_id, smoothed_risk)
+        retrieval_executed = retrieval_response.strategy not in ("blocked_by_policy", "restricted_by_policy", "none", "error")
         
         # Return Telemetry
         return TelemetryEvent(
@@ -143,7 +134,10 @@ class AegisSecurityService:
             instantaneous_risk=instantaneous_risk,
             smoothed_risk=smoothed_risk,
             policy=ctx["policy"],
-            blocked_by_policy=(retrieval_response.strategy == "blocked_by_policy")
+            blocked_by_policy=(retrieval_response.strategy == "blocked_by_policy" or ctx["policy"].response_mode == "BLOCK"),
+            retrieval_executed=retrieval_executed,
+            role=ctx.get("role", "Standard"),
+            response_mode=ctx["policy"].response_mode
         )
 
 # Singleton

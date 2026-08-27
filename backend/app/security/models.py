@@ -8,12 +8,19 @@ class RiskLevel(str, Enum):
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
 
+class ResponseMode(str, Enum):
+    ALLOW = "ALLOW"
+    MASK = "MASK"
+    RESTRICT = "RESTRICT"
+    BLOCK = "BLOCK"
+
 class AdaptivePolicy(BaseModel):
     risk_score: float = Field(..., ge=0.0, le=1.0)
     risk_level: RiskLevel
     attenuation_factor: float = Field(..., ge=0.0, le=1.0)
     effective_context_limit: int = Field(..., ge=1)
     effective_graph_depth: int = Field(..., ge=0)
+    response_mode: ResponseMode = ResponseMode.ALLOW
 class SignalValues(BaseModel):
     semantic_drift: float = Field(0.0, ge=0.0, le=1.0)
     temporal_frequency: float = Field(0.0, ge=0.0, le=1.0)
@@ -32,6 +39,9 @@ class TelemetryEvent(BaseModel):
     smoothed_risk: float = Field(0.0, ge=0.0, le=1.0)
     policy: Optional[AdaptivePolicy] = None
     blocked_by_policy: bool = False
+    retrieval_executed: bool = False
+    role: str = "Standard"
+    response_mode: ResponseMode = ResponseMode.ALLOW
 
 class QueryRecord(BaseModel):
     timestamp: float

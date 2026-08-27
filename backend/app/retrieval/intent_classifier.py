@@ -125,7 +125,6 @@ INTENT_RULES = [
 EMAIL_FALLBACK_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 
-from app.llm.ollama_client import ollama_client
 
 async def classify_intent(query: str) -> RetrievalIntent:
     """
@@ -149,17 +148,6 @@ async def classify_intent(query: str) -> RetrievalIntent:
         logger.debug(f"Email detected, defaulting to employee_lookup: {query!r}")
         return RetrievalIntent.EMPLOYEE_LOOKUP
 
-    # 2. Slow Path: LLM Intent Classification Fallback
-    logger.debug(f"Regex classification failed, falling back to LLM for: {query!r}")
-    allowed_intents = [i.value for i in RetrievalIntent]
-    
-    llm_intent_str = await ollama_client.classify_intent(query, allowed_intents)
-    
-    try:
-        validated_intent = RetrievalIntent(llm_intent_str)
-        if validated_intent != RetrievalIntent.UNSUPPORTED:
-            logger.debug(f"LLM successfully classified intent as {llm_intent_str}")
-        return validated_intent
-    except ValueError:
-        logger.warning(f"LLM returned invalid intent: {llm_intent_str}. Defaulting to UNSUPPORTED.")
-        return RetrievalIntent.UNSUPPORTED
+    # 2. Return UNSUPPORTED if deterministic fails
+    logger.debug(f"Regex classification failed for: {query!r}")
+    return RetrievalIntent.UNSUPPORTED

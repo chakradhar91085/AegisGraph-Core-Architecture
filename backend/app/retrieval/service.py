@@ -76,16 +76,28 @@ class RetrievalService:
         self.strategies = retrieval_strategies
         self.resolver = entity_resolver
 
-    async def execute(self, request: RetrievalRequest) -> RetrievalResponse:
+    async def execute(self, request: RetrievalRequest, llm_provider: str | None = None) -> RetrievalResponse:
         """
         Main entry point for all retrieval requests.
 
-        This method is the interception point for the future
+        This method is the interception point for the
         AegisGraph behavioral security layer.
         """
         # --- Phase: Intent Classification ---
         intent = await classify_intent(request.query)
         logger.info(f"Classified intent: {intent.value} for query: {request.query!r}")
+
+        extracted_params = None
+        if intent == RetrievalIntent.UNSUPPORTED:
+            logger.info(f"Deterministic intent failed. Falling back to LLM extraction (provider={llm_provider or 'default'}).")
+            from app.llm.provider_factory import get_llm_provider
+            provider = get_llm_provider(llm_provider)
+            allowed_intents = [i.value for i in RetrievalIntent]
+            extracted_params = await provider.extract_query_parameters(request.query, allowed_intents)
+            try:
+                intent = RetrievalIntent(extracted_params.get("intent", "unsupported_intent"))
+            except ValueError:
+                intent = RetrievalIntent.UNSUPPORTED
 
         if intent == RetrievalIntent.UNSUPPORTED:
             return RetrievalResponse(
@@ -99,20 +111,34 @@ class RetrievalService:
 
         # --- Phase: Security Enforcement ---
         required_depth = INTENT_DEPTH_MAP.get(intent, 5)
-        if required_depth > request.max_depth:
-            logger.warning(f"Security block: required depth {required_depth} > max depth {request.max_depth}")
+        
+        # Explicit block decision (short-circuited in RAG service mostly, but kept for defense-in-depth)
+        if getattr(request, "response_mode", "ALLOW") == "BLOCK":
+            logger.warning("Security block: Explicit BLOCK decision.")
             return RetrievalResponse(
                 query=request.query,
                 intent=intent.value,
                 results=[],
                 result_count=0,
                 strategy="blocked_by_policy",
-                metadata={"reason": "Query exceeds permitted graph depth due to security policy."},
+                metadata={"reason": "Query blocked completely by security policy."},
+            )
+            
+        # Scope restriction exceeding permitted boundaries
+        if required_depth > request.max_depth:
+            logger.warning(f"Security restriction: required depth {required_depth} > max depth {request.max_depth}")
+            return RetrievalResponse(
+                query=request.query,
+                intent=intent.value,
+                results=[],
+                result_count=0,
+                strategy="restricted_by_policy",
+                metadata={"reason": "Query exceeds permitted graph depth due to security restriction. No data accessible."},
             )
 
         # --- Phase: Entity Resolution + Strategy Execution ---
         if intent == RetrievalIntent.EMPLOYEE_LOOKUP:
-            return await self._handle_employee_lookup(request, intent)
+            return await self._handle_employee_lookup(request, intent, extracted_params, llm_provider)
 
         elif intent == RetrievalIntent.ALL_EMPLOYEES:
             return await self._handle_all_employees(request, intent)
@@ -121,10 +147,10 @@ class RetrievalService:
             return await self._handle_graph_discovery(request, intent)
 
         elif intent == RetrievalIntent.SENT_EMAILS:
-            return await self._handle_employee_emails(request, intent, "sent")
+            return await self._handle_employee_emails(request, intent, "sent", extracted_params, llm_provider)
 
         elif intent == RetrievalIntent.RECEIVED_EMAILS:
-            return await self._handle_employee_emails(request, intent, "received")
+            return await self._handle_employee_emails(request, intent, "received", extracted_params, llm_provider)
 
         elif intent == RetrievalIntent.EMAIL_CHUNKS:
             return await self._handle_email_chunks(request, intent)
@@ -136,16 +162,16 @@ class RetrievalService:
             return await self._handle_entity_relationships(request, intent)
 
         elif intent == RetrievalIntent.FREQUENT_COMMUNICATION:
-            return await self._handle_frequent_communication(request, intent)
+            return await self._handle_frequent_communication(request, intent, extracted_params, llm_provider)
 
         elif intent == RetrievalIntent.TOPICAL_FOOTPRINT:
-            return await self._handle_topical_footprint(request, intent)
+            return await self._handle_topical_footprint(request, intent, extracted_params, llm_provider)
 
         elif intent == RetrievalIntent.ORGANIZATION_INFO:
             return await self._handle_organization_info(request, intent)
 
         elif intent == RetrievalIntent.PERSON_CONNECTION:
-            return await self._handle_person_connection(request, intent)
+            return await self._handle_person_connection(request, intent, extracted_params, llm_provider)
 
         # Should not reach here
         return RetrievalResponse(
@@ -162,10 +188,10 @@ class RetrievalService:
     # ------------------------------------------------------------------
 
     async def _handle_employee_lookup(
-        self, request: RetrievalRequest, intent: RetrievalIntent
+        self, request: RetrievalRequest, intent: RetrievalIntent, extracted_params: dict = None, llm_provider: str | None = None
     ) -> RetrievalResponse:
         """Handle employee_lookup intent."""
-        resolved = await self.resolver.resolve_employee(request.query)
+        resolved = await self.resolver.resolve_employee(request.query, extracted_params, llm_provider)
         results = _serialize_results(resolved.matches)
 
         return RetrievalResponse(
@@ -212,10 +238,10 @@ class RetrievalService:
         )
 
     async def _handle_employee_emails(
-        self, request: RetrievalRequest, intent: RetrievalIntent, direction: str
+        self, request: RetrievalRequest, intent: RetrievalIntent, direction: str, extracted_params: dict = None, llm_provider: str | None = None
     ) -> RetrievalResponse:
         """Handle sent_emails or received_emails intent."""
-        resolved = await self.resolver.resolve_employee(request.query)
+        resolved = await self.resolver.resolve_employee(request.query, extracted_params, llm_provider)
 
         if resolved.status == ResolutionStatus.NOT_FOUND:
             return RetrievalResponse(
@@ -247,14 +273,14 @@ class RetrievalService:
             )
 
         # Exactly one match
-        employee_id = resolved.matches[0]["employee_id"]
+        employee_email = resolved.matches[0]["email"]
         if direction == "sent":
             raw_results = await self.strategies.get_sent_emails(
-                employee_id, limit=request.limit
+                employee_email, limit=request.limit
             )
         else:
             raw_results = await self.strategies.get_received_emails(
-                employee_id, limit=request.limit
+                employee_email, limit=request.limit
             )
 
         results = _serialize_results(raw_results)
@@ -268,7 +294,7 @@ class RetrievalService:
             strategy=f"{direction}_emails",
             metadata={
                 "resolution_status": resolved.status.value,
-                "employee_id": employee_id,
+                "email": employee_email,
                 "limit_applied": request.limit,
             },
         )
@@ -276,163 +302,52 @@ class RetrievalService:
     async def _handle_email_chunks(
         self, request: RetrievalRequest, intent: RetrievalIntent
     ) -> RetrievalResponse:
-        """Handle email_chunks intent. Expects an email_id in the query."""
-        # Extract something that looks like an email_id (enron_...)
-        import re
-
-        email_id_match = re.search(r"(enron_[a-f0-9]+)", request.query, re.IGNORECASE)
-        if not email_id_match:
-            return RetrievalResponse(
-                query=request.query,
-                intent=intent.value,
-                results=[],
-                result_count=0,
-                strategy="email_chunks",
-                metadata={
-                    "reason": "No email_id found in query. Please provide an email_id like 'enron_abc123'."
-                },
-            )
-
-        email_id = email_id_match.group(1)
-        raw_results = await self.strategies.get_email_chunks(
-            email_id, limit=request.limit
-        )
-        results = _serialize_results(raw_results)
-
+        """Handle email_chunks intent."""
         return RetrievalResponse(
             query=request.query,
             intent=intent.value,
-            results=results,
-            result_count=len(results),
+            results=[],
+            result_count=0,
             strategy="email_chunks",
-            metadata={"email_id": email_id, "limit_applied": request.limit},
+            metadata={
+                "reason": "Email chunks are not supported by the current graph schema."
+            },
         )
 
     async def _handle_chunk_entities(
         self, request: RetrievalRequest, intent: RetrievalIntent
     ) -> RetrievalResponse:
-        """Handle chunk_entities intent. Expects a chunk_id in the query."""
-        import re
-
-        chunk_id_match = re.search(
-            r"(chk_enron_[a-f0-9]+_\d+)", request.query, re.IGNORECASE
-        )
-        if not chunk_id_match:
-            return RetrievalResponse(
-                query=request.query,
-                intent=intent.value,
-                results=[],
-                result_count=0,
-                strategy="chunk_entities",
-                metadata={
-                    "reason": "No chunk_id found in query. Please provide a chunk_id like 'chk_enron_abc123_0'."
-                },
-            )
-
-        chunk_id = chunk_id_match.group(1)
-        raw_results = await self.strategies.get_chunk_entities(
-            chunk_id, limit=request.limit
-        )
-        results = _serialize_results(raw_results)
-
+        """Handle chunk_entities intent."""
         return RetrievalResponse(
             query=request.query,
             intent=intent.value,
-            results=results,
-            result_count=len(results),
+            results=[],
+            result_count=0,
             strategy="chunk_entities",
-            metadata={"chunk_id": chunk_id, "limit_applied": request.limit},
+            metadata={
+                "reason": "Chunk entities are not supported by the current graph schema."
+            },
         )
 
     async def _handle_entity_relationships(
         self, request: RetrievalRequest, intent: RetrievalIntent
     ) -> RetrievalResponse:
         """Handle entity_relationships intent."""
-        import re
-
-        # Try to find an entity_id directly
-        entity_id_match = re.search(
-            r"(ent_[a-z]+_[a-f0-9]+)", request.query, re.IGNORECASE
-        )
-
-        if entity_id_match:
-            entity_id = entity_id_match.group(1)
-            raw_results = await self.strategies.get_entity_relationships(
-                entity_id, limit=request.limit
-            )
-            results = _serialize_results(raw_results)
-            return RetrievalResponse(
-                query=request.query,
-                intent=intent.value,
-                results=results,
-                result_count=len(results),
-                strategy="entity_relationships",
-                metadata={"entity_id": entity_id, "limit_applied": request.limit},
-            )
-
-        # Otherwise try to resolve an entity by name
-        # Extract the entity name from patterns like "entities related to X"
-        name_match = re.search(
-            r"(?:related|connected|linked)\s+to\s+(.+)", request.query, re.IGNORECASE
-        )
-        entity_name = name_match.group(1).strip() if name_match else request.query
-
-        resolved = await self.resolver.resolve_entity(entity_name)
-
-        if resolved.status == ResolutionStatus.NOT_FOUND:
-            return RetrievalResponse(
-                query=request.query,
-                intent=intent.value,
-                resolved_entities=[resolved],
-                results=[],
-                result_count=0,
-                strategy="entity_relationships",
-                metadata={
-                    "resolution_status": resolved.status.value,
-                    "reason": f"No entity found matching '{entity_name}'.",
-                },
-            )
-
-        if resolved.status == ResolutionStatus.AMBIGUOUS:
-            return RetrievalResponse(
-                query=request.query,
-                intent=intent.value,
-                resolved_entities=[resolved],
-                results=[],
-                result_count=0,
-                strategy="entity_relationships",
-                metadata={
-                    "resolution_status": resolved.status.value,
-                    "reason": "Multiple entities matched. Please be more specific.",
-                    "candidates": _serialize_results(resolved.matches),
-                },
-            )
-
-        # Exactly one match
-        entity_id = resolved.matches[0]["entity_id"]
-        raw_results = await self.strategies.get_entity_relationships(
-            entity_id, limit=request.limit
-        )
-        results = _serialize_results(raw_results)
-
         return RetrievalResponse(
             query=request.query,
             intent=intent.value,
-            resolved_entities=[resolved],
-            results=results,
-            result_count=len(results),
+            results=[],
+            result_count=0,
             strategy="entity_relationships",
             metadata={
-                "resolution_status": resolved.status.value,
-                "entity_id": entity_id,
-                "limit_applied": request.limit,
+                "reason": "Entity relationships are not supported by the current graph schema."
             },
         )
 
     async def _handle_frequent_communication(
-        self, request: RetrievalRequest, intent: RetrievalIntent
+        self, request: RetrievalRequest, intent: RetrievalIntent, extracted_params: dict = None, llm_provider: str | None = None
     ) -> RetrievalResponse:
-        resolved = await self.resolver.resolve_employee(request.query)
+        resolved = await self.resolver.resolve_employee(request.query, extracted_params, llm_provider)
         if resolved.status != ResolutionStatus.FOUND:
             return RetrievalResponse(
                 query=request.query,
@@ -443,8 +358,8 @@ class RetrievalService:
                 strategy="frequent_communication",
                 metadata={"reason": "Could not uniquely resolve employee."}
             )
-        employee_id = resolved.matches[0]["employee_id"]
-        raw_results = await self.strategies.get_frequent_communication(employee_id, limit=request.limit)
+        employee_email = resolved.matches[0]["email"]
+        raw_results = await self.strategies.get_frequent_communication(employee_email, limit=request.limit)
         results = _serialize_results(raw_results)
         return RetrievalResponse(
             query=request.query,
@@ -456,9 +371,9 @@ class RetrievalService:
         )
 
     async def _handle_topical_footprint(
-        self, request: RetrievalRequest, intent: RetrievalIntent
+        self, request: RetrievalRequest, intent: RetrievalIntent, extracted_params: dict = None, llm_provider: str | None = None
     ) -> RetrievalResponse:
-        resolved = await self.resolver.resolve_employee(request.query)
+        resolved = await self.resolver.resolve_employee(request.query, extracted_params, llm_provider)
         if resolved.status != ResolutionStatus.FOUND:
             return RetrievalResponse(
                 query=request.query,
@@ -469,8 +384,8 @@ class RetrievalService:
                 strategy="topical_footprint",
                 metadata={"reason": "Could not uniquely resolve employee."}
             )
-        employee_id = resolved.matches[0]["employee_id"]
-        raw_results = await self.strategies.get_topical_footprint(employee_id, limit=request.limit)
+        employee_email = resolved.matches[0]["email"]
+        raw_results = await self.strategies.get_topical_footprint(employee_email, limit=request.limit)
         results = _serialize_results(raw_results)
         return RetrievalResponse(
             query=request.query,
@@ -484,31 +399,20 @@ class RetrievalService:
     async def _handle_organization_info(
         self, request: RetrievalRequest, intent: RetrievalIntent
     ) -> RetrievalResponse:
-        resolved = await self.resolver.resolve_employee(request.query)
-        if resolved.status != ResolutionStatus.FOUND:
-            return RetrievalResponse(
-                query=request.query,
-                intent=intent.value,
-                resolved_entities=[resolved],
-                results=[],
-                result_count=0,
-                strategy="organization_info",
-                metadata={"reason": "Could not uniquely resolve employee."}
-            )
-        employee_id = resolved.matches[0]["employee_id"]
-        raw_results = await self.strategies.get_organization(employee_id, limit=request.limit)
-        results = _serialize_results(raw_results)
+        """Handle organization_info intent."""
         return RetrievalResponse(
             query=request.query,
             intent=intent.value,
-            resolved_entities=[resolved],
-            results=results,
-            result_count=len(results),
-            strategy="organization_info"
+            results=[],
+            result_count=0,
+            strategy="organization_info",
+            metadata={
+                "reason": "Organization info is not supported by the current graph schema."
+            },
         )
 
     async def _handle_person_connection(
-        self, request: RetrievalRequest, intent: RetrievalIntent
+        self, request: RetrievalRequest, intent: RetrievalIntent, extracted_params: dict = None, llm_provider: str | None = None
     ) -> RetrievalResponse:
         import re
         # Attempt to find two names. Use a simple split on ' and ' or ' with '
@@ -527,6 +431,8 @@ class RetrievalService:
         name1 = match.group(1).strip()
         name2 = match.group(2).strip()
         
+        # We don't pass extracted_params to both because extracted_params typically extracts one primary_person 
+        # or search terms, which might be mixed. For now, try deterministic for both, and if it fails, maybe we can't do connections yet via single fallback.
         resolved1 = await self.resolver.resolve_employee(name1)
         resolved2 = await self.resolver.resolve_employee(name2)
         
@@ -541,8 +447,8 @@ class RetrievalService:
                 metadata={"reason": "Could not uniquely resolve both employees."}
             )
             
-        emp_id1 = resolved1.matches[0]["employee_id"]
-        emp_id2 = resolved2.matches[0]["employee_id"]
+        email1 = resolved1.matches[0]["email"]
+        email2 = resolved2.matches[0]["email"]
         
         # Determine strict bounded limit based on effective graph depth. We bound it aggressively to min(request.max_depth, 3) 
         # so even a permissive policy doesn't result in massive arbitrary traversals.
@@ -558,7 +464,7 @@ class RetrievalService:
                 metadata={"reason": "Graph depth limit prevents path traversal."}
             )
         
-        raw_results = await self.strategies.get_person_connection(emp_id1, emp_id2, safe_depth)
+        raw_results = await self.strategies.get_person_connection(email1, email2, safe_depth)
         results = _serialize_results(raw_results)
         return RetrievalResponse(
             query=request.query,

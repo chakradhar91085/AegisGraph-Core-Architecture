@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.db.neo4j import neo4j_client
-from app.llm.ollama_client import ollama_client
-import asyncio
+from app.llm.provider_factory import get_llm_provider
 
 router = APIRouter()
 
@@ -17,19 +16,24 @@ async def neo4j_health_check():
     """
     Health check for Neo4j connection.
     """
-    is_healthy = neo4j_client.check_health()
+    is_healthy = await neo4j_client.check_health()
     if is_healthy:
         return {"status": "healthy", "service": "neo4j"}
     else:
         raise HTTPException(status_code=503, detail="Neo4j service is unreachable or unhealthy")
 
-@router.get("/health/ollama")
-async def ollama_health_check():
+@router.get("/health/llm")
+async def llm_health_check(provider: str = None):
     """
-    Health check for Ollama service.
+    Health check for the selected LLM provider.
+    Accepts ?provider=gemini or ?provider=ollama.
     """
-    is_healthy = await ollama_client.check_health()
+    llm = get_llm_provider(provider)
+    is_healthy = await llm.check_health()
     if is_healthy:
-        return {"status": "healthy", "service": "ollama"}
+        return {"status": "healthy", "service": llm.provider_name}
     else:
-        raise HTTPException(status_code=503, detail="Ollama service is unreachable or unhealthy")
+        raise HTTPException(
+            status_code=503,
+            detail=f"{llm.provider_name} LLM service is unreachable or unhealthy"
+        )

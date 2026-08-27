@@ -3,6 +3,11 @@ AegisGraph Phase 2 — Parameterized Cypher retrieval strategies.
 
 All queries use Neo4j query parameters ($param). No string interpolation.
 Every query has a configurable LIMIT. No unrestricted traversals.
+
+SCHEMA (actual ingested data):
+  Labels:  Person (email, name), Email (email_id, sent_at, subject, message_id, source_path, body), Topic (name)
+  Rels:    SENT (Person->Email), SENT_TO (Email->Person), CC_TO (Email->Person),
+           DISCUSSES (Email->Topic), REPLY_TO (Email->Email)
 """
 from typing import List, Dict, Any
 from app.db.neo4j import neo4j_client
@@ -30,15 +35,14 @@ class RetrievalStrategies:
         return min(max(limit, 1), MAX_LIMIT)
 
     # ------------------------------------------------------------------
-    # Strategy A — Employee Lookup
+    # Strategy A — Person Lookup (by email)
     # ------------------------------------------------------------------
 
     async def lookup_employee_by_email(self, email: str) -> List[Dict[str, Any]]:
-        """Find an Employee node by exact email address."""
+        """Find a Person node by exact email address."""
         query = """
-        MATCH (e:Employee {email: $email})
-        RETURN e.employee_id AS employee_id, e.name AS name,
-               e.email AS email, e.domain AS domain, e.mailbox AS mailbox
+        MATCH (p:Person {email: $email})
+        RETURN p.email AS email, p.name AS name
         LIMIT 1
         """
         return await self.db.execute_read(query, {"email": email.strip().lower()})
@@ -46,12 +50,16 @@ class RetrievalStrategies:
     async def lookup_employee_by_name(
         self, name: str, limit: int = 5
     ) -> List[Dict[str, Any]]:
-        """Find Employee nodes by case-insensitive name search."""
+        """Find Person nodes by case-insensitive search on the email property.
+        Since the 'name' field is empty for most Person nodes, we search by
+        matching the name fragment against the email local part.
+        """
         query = """
-        MATCH (e:Employee)
-        WHERE toLower(e.name) CONTAINS toLower($name)
-        RETURN e.employee_id AS employee_id, e.name AS name,
-               e.email AS email, e.domain AS domain, e.mailbox AS mailbox
+        MATCH (p:Person)
+        WHERE toLower(p.email) CONTAINS toLower(replace($name, ' ', '.'))
+           OR toLower(p.email) CONTAINS toLower(replace($name, ' ', ''))
+           OR (p.name <> '' AND toLower(p.name) CONTAINS toLower($name))
+        RETURN p.email AS email, p.name AS name
         LIMIT $limit
         """
         return await self.db.execute_read(
@@ -63,170 +71,95 @@ class RetrievalStrategies:
     # ------------------------------------------------------------------
 
     async def get_sent_emails(
-        self, employee_id: str, limit: int = 10
+        self, person_email: str, limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """Retrieve emails sent by a specific employee."""
+        """Retrieve emails sent by a specific person."""
         query = """
-        MATCH (e:Employee {employee_id: $employee_id})-[:SENT]->(m:Email)
-        RETURN m.email_id AS email_id, m.subject AS subject,
-               m.timestamp AS timestamp, m.source_folder AS source_folder
-        ORDER BY m.timestamp DESC
+        MATCH (p:Person {email: $person_email})-[:SENT]->(e:Email)
+        RETURN e.email_id AS email_id, e.subject AS subject,
+               e.sent_at AS timestamp, e.body AS body
+        ORDER BY e.sent_at DESC
         LIMIT $limit
         """
         return await self.db.execute_read(
-            query, {"employee_id": employee_id, "limit": self._cap_limit(limit)}
+            query, {"person_email": person_email, "limit": self._cap_limit(limit)}
         )
 
     # ------------------------------------------------------------------
-    # Strategy C — Received Emails
+    # Strategy C — Received Emails (via SENT_TO)
     # ------------------------------------------------------------------
 
     async def get_received_emails(
-        self, employee_id: str, limit: int = 10
+        self, person_email: str, limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """Retrieve emails received by a specific employee."""
+        """Retrieve emails received by a specific person (via SENT_TO relationship)."""
         query = """
-        MATCH (e:Employee {employee_id: $employee_id})<-[:RECEIVED_BY]-(m:Email)
-        RETURN m.email_id AS email_id, m.subject AS subject,
-               m.timestamp AS timestamp, m.source_folder AS source_folder
-        ORDER BY m.timestamp DESC
+        MATCH (e:Email)-[:SENT_TO]->(p:Person {email: $person_email})
+        RETURN e.email_id AS email_id, e.subject AS subject,
+               e.sent_at AS timestamp, e.body AS body
+        ORDER BY e.sent_at DESC
         LIMIT $limit
         """
         return await self.db.execute_read(
-            query, {"employee_id": employee_id, "limit": self._cap_limit(limit)}
+            query, {"person_email": person_email, "limit": self._cap_limit(limit)}
         )
 
     # ------------------------------------------------------------------
-    # Strategy D — Email Chunks
-    # ------------------------------------------------------------------
-
-    async def get_email_chunks(
-        self, email_id: str, limit: int = 10
-    ) -> List[Dict[str, Any]]:
-        """Retrieve text chunks belonging to a specific email."""
-        query = """
-        MATCH (m:Email {email_id: $email_id})-[:CONTAINS]->(c:Chunk)
-        RETURN c.chunk_id AS chunk_id, c.chunk_index AS chunk_index, c.text AS text
-        ORDER BY c.chunk_index ASC
-        LIMIT $limit
-        """
-        return await self.db.execute_read(
-            query, {"email_id": email_id, "limit": self._cap_limit(limit)}
-        )
-
-    # ------------------------------------------------------------------
-    # Strategy E — Chunk Entities
-    # ------------------------------------------------------------------
-
-    async def get_chunk_entities(
-        self, chunk_id: str, limit: int = 20
-    ) -> List[Dict[str, Any]]:
-        """Retrieve named entities mentioned in a specific chunk."""
-        query = """
-        MATCH (c:Chunk {chunk_id: $chunk_id})-[r:MENTIONS]->(ent:Entity)
-        RETURN ent.entity_id AS entity_id, ent.name AS entity_name,
-               ent.entity_type AS entity_type, r.count AS mention_count
-        ORDER BY r.count DESC
-        LIMIT $limit
-        """
-        return await self.db.execute_read(
-            query, {"chunk_id": chunk_id, "limit": self._cap_limit(limit)}
-        )
-
-    # ------------------------------------------------------------------
-    # Strategy F — Entity Relationships
-    # ------------------------------------------------------------------
-
-    async def get_entity_relationships(
-        self, entity_id: str, limit: int = 20
-    ) -> List[Dict[str, Any]]:
-        """Retrieve entities related to a given entity via co-occurrence."""
-        query = """
-        MATCH (e1:Entity {entity_id: $entity_id})-[r:RELATED_TO]-(e2:Entity)
-        RETURN e2.entity_id AS entity_id, e2.name AS entity_name,
-               e2.entity_type AS entity_type, r.co_occurrence_count AS co_occurrence_count
-        ORDER BY r.co_occurrence_count DESC
-        LIMIT $limit
-        """
-        return await self.db.execute_read(
-            query, {"entity_id": entity_id, "limit": self._cap_limit(limit)}
-        )
-
-    # ------------------------------------------------------------------
-    # Strategy G — Frequent Communication
-    # ------------------------------------------------------------------
-
-    async def get_frequent_communication(
-        self, employee_id: str, limit: int = 10
-    ) -> List[Dict[str, Any]]:
-        """Retrieve employees this employee communicates with most frequently."""
-        query = """
-        MATCH (e1:Employee {employee_id: $employee_id})-[r:COMMUNICATES_FREQUENTLY_WITH]-(e2:Employee)
-        RETURN e2.employee_id AS employee_id, e2.name AS name,
-               e2.email AS email, r.weight AS weight
-        ORDER BY r.weight DESC
-        LIMIT $limit
-        """
-        return await self.db.execute_read(
-            query, {"employee_id": employee_id, "limit": self._cap_limit(limit)}
-        )
-
-    # ------------------------------------------------------------------
-    # Strategy H — Topical Footprint
+    # Strategy D — Topics Discussed by a Person (Topical Footprint)
     # ------------------------------------------------------------------
 
     async def get_topical_footprint(
-        self, employee_id: str, limit: int = 20
+        self, person_email: str, limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """Retrieve entities this employee frequently mentions."""
+        """Retrieve topics most frequently discussed in a person's sent emails."""
         query = """
-        MATCH (e:Employee {employee_id: $employee_id})-[r:FREQUENTLY_MENTIONS]->(ent:Entity)
-        RETURN ent.entity_id AS entity_id, ent.name AS entity_name,
-               ent.entity_type AS entity_type, r.count AS count
-        ORDER BY r.count DESC
+        MATCH (p:Person {email: $person_email})-[:SENT]->(e:Email)-[:DISCUSSES]->(t:Topic)
+        RETURN t.name AS topic_name, count(*) AS count
+        ORDER BY count DESC
         LIMIT $limit
         """
         return await self.db.execute_read(
-            query, {"employee_id": employee_id, "limit": self._cap_limit(limit)}
+            query, {"person_email": person_email, "limit": self._cap_limit(limit)}
         )
 
     # ------------------------------------------------------------------
-    # Strategy I — Organization Info
+    # Strategy E — Frequent Communication Partners
     # ------------------------------------------------------------------
 
-    async def get_organization(
-        self, employee_id: str, limit: int = 1
+    async def get_frequent_communication(
+        self, person_email: str, limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """Retrieve the organization this employee belongs to."""
+        """Retrieve people this person communicates with most frequently.
+        Computed from shared SENT->Email->SENT_TO patterns."""
         query = """
-        MATCH (e:Employee {employee_id: $employee_id})-[:BELONGS_TO]->(o:Organization)
-        RETURN o.name AS organization_name
+        MATCH (p1:Person {email: $person_email})-[:SENT]->(e:Email)-[:SENT_TO]->(p2:Person)
+        WHERE p2.email <> $person_email
+        RETURN p2.email AS email, p2.name AS name, count(DISTINCT e) AS email_count
+        ORDER BY email_count DESC
         LIMIT $limit
         """
         return await self.db.execute_read(
-            query, {"employee_id": employee_id, "limit": self._cap_limit(limit)}
+            query, {"person_email": person_email, "limit": self._cap_limit(limit)}
         )
 
     # ------------------------------------------------------------------
-    # Strategy J — Person Connection
+    # Strategy F — Person Connection (shortest path via shared emails)
     # ------------------------------------------------------------------
 
     async def get_person_connection(
-        self, employee_id_1: str, employee_id_2: str, max_depth: int
+        self, email_1: str, email_2: str, max_depth: int
     ) -> List[Dict[str, Any]]:
-        """Safely find a shortest communication path between two employees up to max_depth."""
-        # Using APOC or pure cypher shortestPath
-        # Note: Cypher requires the upper bound in shortestPath to be a literal.
-        # We will dynamically generate the literal from max_depth safely.
+        """Find a communication path between two people via shared emails."""
         safe_depth = self._cap_limit(max_depth)
-        
-        query = f"""
-        MATCH p=shortestPath((e1:Employee {{employee_id: $emp1}})-[:COMMUNICATES_FREQUENTLY_WITH*1..{safe_depth}]-(e2:Employee {{employee_id: $emp2}}))
-        RETURN [node IN nodes(p) | node.name] AS path_names,
-               [rel IN relationships(p) | rel.weight] AS path_weights
+        # Use a 2-hop pattern: Person1 -[:SENT]-> Email <-[:SENT_TO]- (implicit) -> Person2
+        query = """
+        MATCH (p1:Person {email: $email1})-[:SENT]->(e:Email)-[:SENT_TO]->(p2:Person {email: $email2})
+        RETURN p1.email AS from_email, e.subject AS via_email_subject, p2.email AS to_email
+        LIMIT $limit
         """
         return await self.db.execute_read(
-            query, {"emp1": employee_id_1, "emp2": employee_id_2}
+            query, {"email1": email_1, "email2": email_2, "limit": self._cap_limit(safe_depth)}
         )
+
 # Module-level singleton
 retrieval_strategies = RetrievalStrategies()

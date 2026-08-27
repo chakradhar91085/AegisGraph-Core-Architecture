@@ -80,72 +80,76 @@ class ContextBuilder:
                 name = match.get("name") or match.get("entity_name") or entity.query_value
                 typ = "Employee" if entity.type == "employee" else "Entity"
                 if len(response.resolved_entities) > 1:
-                    parts.append(f"SUBJECT {i+1}: {name} ({typ})")
+                    parts.append(f"Identified {typ} {i+1}: {name}")
                 else:
-                    parts.append(f"SUBJECT: {name} ({typ})")
+                    parts.append(f"Identified {typ}: {name}")
         if parts:
-            return "\n".join(parts) + "\n"
+            return "\n".join(parts)
         return ""
 
     def _format_employee(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
-        parts = []
+        parts = ["PERSON PROFILE"]
         for row in results:
             part = (
-                "RETRIEVED RECORD TYPE: Employee Profile\n"
-                f"Name: {row.get('name', '')}\n"
-                f"Email: {row.get('email', '')}\n"
-                f"Domain: {row.get('domain', '')}\n"
-                f"Mailbox: {row.get('mailbox', '')}"
+                f"- Name: {row.get('name', 'Unknown')}\n"
+                f"- Email: {row.get('email', 'Unknown')}\n"
+                f"- Domain: {row.get('domain', 'Unknown')}\n"
+                f"- Mailbox: {row.get('mailbox', 'Unknown')}"
             )
             parts.append(part)
-        return parts
+        return ["\n".join(parts)]
 
     def _format_emails(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Email Metadata\nINTENT: {response.intent.upper()}"]
+        parts = ["REPRESENTATIVE EMAIL EVIDENCE"]
+        if header:
+            parts.append(header)
         for row in results:
             part = (
-                f"- Email ID: {row.get('email_id', '')} | "
-                f"Subject: {row.get('subject', '')} | "
-                f"Timestamp: {row.get('timestamp', '')} | "
-                f"Folder: {row.get('source_folder', '')}"
+                f"- Subject: \"{row.get('subject', '')}\"\n"
+                f"  Date: {row.get('timestamp', '')}\n"
+                f"  Folder: {row.get('source_folder', '')}\n"
+                f"  Body: {str(row.get('body', 'No content available'))[:1000]}"
             )
             parts.append(part)
         return ["\n".join(parts)]
 
     def _format_chunks(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
-        parts = [f"RETRIEVED RECORD TYPE: Email Content Chunk\nINTENT: {response.intent.upper()}"]
+        parts = ["REPRESENTATIVE EMAIL EXCERPTS"]
         for row in results:
             text = str(row.get('text', ''))
             if len(text) > self.max_chunk_chars:
                 text = text[:self.max_chunk_chars] + "... [TRUNCATED]"
-            part = (
-                f"Chunk ID: {row.get('chunk_id', '')} | Index: {row.get('chunk_index', '')}\n"
-                f"Text:\n{text}"
-            )
+            part = f"- Excerpt:\n  \"{text}\""
             parts.append(part)
-        return parts
+        return ["\n".join(parts)]
 
     def _format_entities(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
-        parts = [f"RETRIEVED RECORD TYPE: Entities Mentioned in Chunk\nINTENT: {response.intent.upper()}"]
+        parts = ["MENTIONED ENTITIES"]
+        parts.append("The following entities were mentioned in the text:")
         for row in results:
             parts.append(
-                f"- {row.get('entity_name', '')} (Type: {row.get('entity_type', '')}, Mentions: {row.get('mention_count', '')})"
+                f"  - {row.get('entity_name', '')} ({row.get('entity_type', '')}) — {row.get('mention_count', '')} mentions"
             )
         return ["\n".join(parts)]
 
     def _format_entity_relationships(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Entity Co-occurrences\nINTENT: {response.intent.upper()}"]
+        parts = ["ENTITY RELATIONSHIPS"]
+        if header:
+            parts.append(header)
+        parts.append("Observed co-occurrences:")
         for row in results:
             parts.append(
-                f"- {row.get('entity_name', '')} (Type: {row.get('entity_type', '')}, Co-occurrences: {row.get('co_occurrence_count', '')})"
+                f"  - {row.get('entity_name', '')} ({row.get('entity_type', '')}) — {row.get('co_occurrence_count', '')} co-occurrences"
             )
         return ["\n".join(parts)]
 
     def _format_generic(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Generic Records\nINTENT: {response.intent.upper()}"]
+        parts = ["RETRIEVED GRAPH RECORDS"]
+        if header:
+            parts.append(header)
         for row in results:
             prop_str = ", ".join(f"{k}: {v}" for k, v in row.items())
             parts.append(f"- {prop_str}")
@@ -153,25 +157,34 @@ class ContextBuilder:
 
     def _format_frequent_communication(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Frequent Communication Network\nINTENT: {response.intent.upper()}"]
+        parts = ["COMMUNICATION PATTERNS"]
+        if header:
+            parts.append(header)
+        parts.append("Most frequent communication partners:")
         for row in results:
+            name = row.get('name') or row.get('email', '')
             parts.append(
-                f"- {row.get('name', '')} — communication interactions: {row.get('weight', '')}"
+                f"  - {name} — {row.get('email_count', '')} observed interactions"
             )
         return ["\n".join(parts)]
 
     def _format_topical_footprint(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Frequently Discussed Topics\nINTENT: {response.intent.upper()}"]
+        parts = ["TOPICS"]
+        if header:
+            parts.append(header)
+        parts.append("Frequently discussed topics:")
         for row in results:
             parts.append(
-                f"- {row.get('entity_name', '')} ({row.get('entity_type', '')}) — observed {row.get('count', '')} times"
+                f"  - {row.get('topic_name', '')} — {row.get('count', '')} related emails"
             )
         return ["\n".join(parts)]
 
     def _format_organization_info(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Organization Membership\nINTENT: {response.intent.upper()}"]
+        parts = ["ORGANIZATION MEMBERSHIP"]
+        if header:
+            parts.append(header)
         for row in results:
             parts.append(
                 f"- Organization: {row.get('organization_name', '')}"
@@ -180,14 +193,15 @@ class ContextBuilder:
 
     def _format_person_connection(self, response: RetrievalResponse, results: List[Dict[str, Any]]) -> List[str]:
         header = self._get_subject_header(response)
-        parts = [f"{header}RETRIEVED RECORD TYPE: Observed Communication Path\nINTENT: {response.intent.upper()}"]
+        parts = ["COMMUNICATION PATHWAYS"]
+        if header:
+            parts.append(header)
         for row in results:
             names = " -> ".join(row.get('path_names', []))
             weights = ", ".join(str(w) for w in row.get('path_weights', []))
             parts.append(f"- Path: {names}")
             parts.append(f"  Observed email interactions along path: {weights}")
         return ["\n".join(parts)]
-
 
 # Module-level singleton
 context_builder = ContextBuilder()

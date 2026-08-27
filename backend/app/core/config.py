@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -11,6 +12,10 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str
     NEO4J_DATABASE: str = "aegisgraph"
 
+    # LLM Settings
+    LLM_PROVIDER: str = "ollama"  # "ollama" or "gemini"
+    GEMINI_API_KEY: Optional[str] = None
+    
     # Ollama Settings
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5-coder:7b"
@@ -20,11 +25,14 @@ class Settings(BaseSettings):
     MAX_CHUNK_CHARS: int = 1500
     MAX_CONTEXT_CHARS: int = 8000
 
+    # Postgres Configuration
+    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:123456@localhost:5432/aegisgraph")
+
     # Security & Telemetry Settings
     # Research-aligned semantic drift model
     SECURITY_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     SECURITY_TEMPORAL_WINDOW_SECONDS: int = 60
-    SECURITY_ALPHA_TEMP: float = 0.1
+    SECURITY_ALPHA_TEMP: float = 0.05
     SECURITY_TEMPORAL_THRESHOLD: int = 5
     SECURITY_GRAPH_MAX_DEPTH: int = 5
     SECURITY_GRAPH_MAX_NODES: int = 50
@@ -36,7 +44,7 @@ class Settings(BaseSettings):
     SECURITY_WEIGHT_ENTITY: float = 0.25
     SECURITY_WEIGHT_GRAPH: float = 0.25
     
-    SECURITY_EWMA_LAMBDA: float = 0.3
+    SECURITY_EWMA_LAMBDA: float = 0.4
     
     # Adaptive Response Policy Parameters
     SECURITY_THETA_MID: float = 0.55
