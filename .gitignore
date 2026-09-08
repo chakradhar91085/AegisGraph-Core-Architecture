@@ -1,8 +1,12 @@
 # Environments
 backend/venv/
+backend/.venv_gpu_embed/
 backend/.env
 frontend/node_modules/
 frontend/dist/
+
+# Logs
+backend/audit.log
 
 # Data
 data/
