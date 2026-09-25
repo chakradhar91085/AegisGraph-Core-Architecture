@@ -66,9 +66,9 @@ graph TD
 ## 4. Component Details
 
 ### 4.1. The Graph Database (Phase 1)
-A highly curated 50,042-email subset of the CMU Enron Corpus, structured as a multi-hop knowledge graph.
-- **Nodes**: `Employee`, `Email`, `Chunk`, `Entity`
-- **Edges**: `SENT`, `RECEIVED_BY`, `CONTAINS`, `MENTIONS`, `RELATED_TO`
+A knowledge graph built from the CMU Enron Corpus: 87,469 unique people, 251,449 unique emails, and 218,836 unique topics (see `neo4j_import/stats.json` for the current ingestion counts).
+- **Nodes**: `Person` (email, name), `Email` (email_id, sent_at, subject, message_id, source_path, body), `Topic` (name)
+- **Edges**: `SENT` (Person→Email), `SENT_TO` (Email→Person), `CC_TO` (Email→Person), `DISCUSSES` (Email→Topic), `REPLY_TO` (Email→Email)
 - See [Phase1_Dataset_and_Graph_Foundation.md](./Phase1_Dataset_and_Graph_Foundation.md)
 
 ### 4.2. Controlled Retrieval Layer (Phase 2)
@@ -81,16 +81,17 @@ Connects retrieval to the LLM via deterministic context construction. Ensures gr
 
 ### 4.4. Behavioral Telemetry & Risk Model (Phase 4A/4B)
 Calculates four behavioral signals per query:
-1. **Semantic Drift** (`S_sem`): Cosine distance between query embeddings.
-2. **Temporal Frequency** (`S_temp`): Exponential decay of inter-arrival time.
+1. **Semantic Focus** (`S_sem`): Mean cosine similarity across a sliding window (default: last 5) of recent query embeddings. High values mean the user is repeatedly circling the same topic — focused, potentially risky probing.
+2. **Temporal Frequency** (`S_temp`): Exponential decay of the gap in seconds since the previous query — rapid-fire queries push this toward 1.0.
 3. **Entity Focus** (`S_ent`): Shannon entropy of entity concentration.
-4. **Graph Footprint** (`S_graph`): Heuristic graph depth and result volume.
+4. **Graph Footprint** (`S_graph`): Heuristic graph depth and result volume, keyed on query intent (not a live Neo4j shortest-path calculation).
 
-Signals are linearly fused and smoothed via Exponential Weighted Moving Average (EWMA) to produce a session risk score `Γ̄_t`.
+Signals are linearly fused with static, equal weights and smoothed via Exponential Weighted Moving Average (EWMA) to produce a session risk score `Γ̄_t`.
 - See [Phase4A_Behavioral_Telemetry.md](./Phase4A_Behavioral_Telemetry.md) and [Phase4B_Risk_Model.md](./Phase4B_Risk_Model.md)
 
 ### 4.5. Adaptive Policy & Response Control (Phase 4C)
-Translates the continuous EWMA risk into concrete system restrictions using a sigmoid attenuation factor (`κ_t`). 
+Translates the continuous EWMA risk into concrete system restrictions using a sigmoid attenuation factor (`κ_t`), centered at `θ_mid = 0.55`.
+- Discrete risk bands: **LOW** below 0.35, **MEDIUM** 0.35–0.65, **HIGH** at/above 0.65.
 - Limits the number of records passed to the context builder (`effective_context_limit`).
 - Blocks intents that require a graph traversal deeper than permitted (`effective_graph_depth`).
 - See [Phase4C1_Adaptive_Policy.md](./Phase4C1_Adaptive_Policy.md), [Phase4C2_Policy_Retrieval_Integration.md](./Phase4C2_Policy_Retrieval_Integration.md), and [Phase4C3_Response_Control.md](./Phase4C3_Response_Control.md)

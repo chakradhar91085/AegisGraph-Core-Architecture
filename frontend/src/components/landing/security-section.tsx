@@ -1,111 +1,75 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-
-import { AnimatedTetrahedron } from "./animated-tetrahedron";
-
-const CONCEPTS = [
-  {
-    id: "01",
-    tag: "TRACKING",
-    title: "NODE EXPOSURE",
-    desc: "AegisGraph tracks exactly which nodes in the knowledge graph have been exposed during the user's session.",
-  },
-  {
-    id: "02",
-    tag: "AWARENESS",
-    title: "NEW ACTIVATIONS",
-    desc: "Visually distinguish between previously known context and newly activated paths uncovered by the latest query.",
-  },
-  {
-    id: "03",
-    tag: "MONITORING",
-    title: "EXPLORATION SPREAD",
-    desc: "Watch how information retrieval cascades through the graph, revealing potential structural vulnerabilities in real time.",
-  },
-  {
-    id: "04",
-    tag: "ENFORCEMENT",
-    title: "ADAPTIVE BOUNDARIES",
-    desc: "As behavioral risk increases, the system dynamically restricts the reachable subgraph, preventing dangerous deep traversal.",
-  },
-];
+import { ArrowRight, ShieldCheck, ShieldAlert } from "lucide-react";
 
 export function SecuritySection() {
-  const [vis, setVis] = useState(false);
-  const ref = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) setVis(true); },
-      { threshold: 0.1 }
-    );
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-
   return (
-    <section id="security" ref={ref} className="relative border-t border-[#1e1e1e] bg-[#080808] scroll-mt-[88px]">
-      <div className="max-w-[1400px] mx-auto px-6 lg:px-12">
+    <section className="py-24 bg-slate-950 relative border-t border-slate-900" id="security">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-12 relative z-10">
+        
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          <h2 className="font-sans font-semibold text-3xl md:text-4xl text-slate-50 mb-4 tracking-tight">
+            Security That Adapts to Behavior
+          </h2>
+          <p className="text-slate-400 text-lg leading-relaxed font-sans">
+            AegisGraph dynamically adjusts its retrieval constraints based on the ongoing behavioral risk assessment of the session.
+          </p>
+        </div>
 
-        {/* Header row */}
-        <div
-          className={`border-b border-[#1e1e1e] py-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 transition-all duration-500 ${vis ? "opacity-100" : "opacity-0"}`}
-        >
-          <div>
-            <span className="sys-tag mb-3 block">GRAPH EXPLORATION</span>
-            <h2 className="font-display text-6xl lg:text-8xl leading-[0.88] tracking-tight text-[#f2ede6]">
-              VISUALIZE
-              <br />
-              <span style={{ WebkitTextStroke: "1px #3a3a3a", color: "transparent" }}>THE BOUNDARY</span>
-            </h2>
-          </div>
-          </div>
-
-        {/* Feature grid */}
-        <div className="grid lg:grid-cols-2 border-b border-[#1e1e1e]">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           
-          {/* Left Side: 3D Visualization */}
-          <div className="border-r border-[#1e1e1e] p-0 h-[400px] lg:h-auto relative bg-[#050505]">
-            <AnimatedTetrahedron />
-            <div className="absolute top-6 left-6 flex items-center gap-2 pointer-events-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#2196f3] animate-pulse" />
-              <span className="font-mono text-[9px] tracking-widest text-[#5a5a5a]">RESTRICTED SUBGRAPH</span>
+          {/* Normal Behavior Path */}
+          <div className="bg-slate-900 border border-slate-800 p-8 rounded-lg flex flex-col items-center text-center">
+            <div className="w-12 h-12 bg-emerald-950/30 border border-emerald-900/50 rounded-full flex items-center justify-center mb-6">
+              <ShieldCheck className="w-6 h-6 text-emerald-500" />
+            </div>
+            <h3 className="font-sans font-semibold text-xl text-slate-200 mb-6">
+              Normal Behavior
+            </h3>
+            
+            <div className="flex flex-col items-center gap-3 w-full">
+              <div className="bg-slate-950 border border-slate-800 py-3 w-full rounded text-sm text-slate-300 font-mono">
+                Normal Interactions
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-600 rotate-90" />
+              <div className="bg-slate-950 border border-slate-800 py-3 w-full rounded text-sm text-slate-300 font-mono">
+                Lower Session Risk
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-600 rotate-90" />
+              <div className="bg-emerald-950/20 border border-emerald-900/40 py-3 w-full rounded text-sm text-emerald-400 font-mono">
+                Broader Retrieval
+              </div>
             </div>
           </div>
 
-          {/* Right Side: Text Cards */}
-          <div className="grid md:grid-cols-2">
-            {CONCEPTS.map((c, i) => (
-              <div
-                key={c.id}
-                className={`border-b md:border-b-0 md:[&:nth-child(1)]:border-b md:[&:nth-child(2)]:border-b border-[#1e1e1e] p-6 row-hover transition-all duration-500 group ${
-                  i % 2 === 0 ? "border-r" : ""
-                } ${vis ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}
-                style={{ transitionDelay: `${i * 80}ms` }}
-              >
-                <div className="flex items-center justify-between mb-8">
-                  <span className="sys-tag text-[9px]">{c.tag}</span>
-                  <span className="font-mono text-[9px] text-[#2e2e2e]">{c.id}</span>
-                </div>
-                <h3 className="font-display text-2xl leading-[0.9] text-[#f2ede6] mb-3 group-hover:text-[#2196f3] transition-colors">
-                  {c.title}
-                </h3>
-                <p className="text-sm text-[#5a5a5a] leading-relaxed">{c.desc}</p>
+          {/* Suspicious Behavior Path */}
+          <div className="bg-slate-900 border border-slate-800 p-8 rounded-lg flex flex-col items-center text-center">
+            <div className="w-12 h-12 bg-rose-950/30 border border-rose-900/50 rounded-full flex items-center justify-center mb-6">
+              <ShieldAlert className="w-6 h-6 text-rose-500" />
+            </div>
+            <h3 className="font-sans font-semibold text-xl text-slate-200 mb-6">
+              Suspicious Behavior
+            </h3>
+            
+            <div className="flex flex-col items-center gap-3 w-full">
+              <div className="bg-slate-950 border border-slate-800 py-3 w-full rounded text-sm text-slate-300 font-mono">
+                Suspicious Patterns
               </div>
-            ))}
+              <ArrowRight className="w-4 h-4 text-slate-600 rotate-90" />
+              <div className="bg-slate-950 border border-slate-800 py-3 w-full rounded text-sm text-slate-300 font-mono">
+                Higher Session Risk
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-600 rotate-90" />
+              <div className="bg-slate-950 border border-slate-800 py-3 w-full rounded text-sm text-slate-300 font-mono">
+                Restricted Retrieval
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-600 rotate-90" />
+              <div className="bg-rose-950/20 border border-rose-900/40 py-3 w-full rounded text-sm text-rose-400 font-mono">
+                Reduced Exposure
+              </div>
+            </div>
           </div>
+
         </div>
 
-        {/* Bottom note */}
-        <div className="py-5 flex items-center justify-between">
-          <span className="font-mono text-[10px] text-[#3a3a3a]">
-            VISUALLY TRACK GRAPH-RAG EXPLORATION PATHS
-          </span>
-          <a href="#" className="font-mono text-[10px] text-[#2196f3] hover:underline tracking-wider">
-            INTERACTIVE DEMO →
-          </a>
-        </div>
       </div>
     </section>
   );

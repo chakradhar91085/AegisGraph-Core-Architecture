@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { chatApi, auditApi } from '../api';
-import type { TelemetryEvent, GraphVisualizationPayload, LLMProviderType } from '../api';
+import type { TelemetryEvent, GraphVisualizationPayload } from '../api';
 
 export type RoleType = 'Standard' | 'Analyst' | 'Auditor';
 
@@ -18,12 +18,13 @@ interface ChatContextType {
   loading: boolean;
   error: string | null;
   role: RoleType;
-  setRole: (role: RoleType) => void;
-  llmProvider: LLMProviderType;
-  setLlmProvider: (provider: LLMProviderType) => void;
+  setRole: (role: RoleType) => void; // switches role AND starts a fresh session
+
   sendMessage: (text: string) => Promise<void>;
   clearSession: () => void;
   endActiveSession: () => Promise<void>;
+  activeGraphData: GraphVisualizationPayload | null;
+  setActiveGraphData: (data: GraphVisualizationPayload | null) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -33,7 +34,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<RoleType>('Standard');
-  const [llmProvider, setLlmProvider] = useState<LLMProviderType>('ollama');
+
+  const [activeGraphData, setActiveGraphData] = useState<GraphVisualizationPayload | null>(null);
 
   const sendMessage = useCallback(async (text: string) => {
     const userMessage: Message = { id: Date.now().toString(), sender: 'user', text };
@@ -42,12 +44,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     try {
-      const sessionId = sessionStorage.getItem('aegis_session_id') || undefined;
-      const response = await chatApi.sendMessage(text, sessionId, role, llmProvider);
-      
-      if (!sessionId) {
-        sessionStorage.setItem('aegis_session_id', response.session_id);
-      }
+      const sessionToken = sessionStorage.getItem('aegis_session_token') || undefined;
+      const response = await chatApi.sendMessage(text, sessionToken, role);
+
+      // The server renews the ticket on every response; always store the
+      // latest one so the session can continue securely.
+      sessionStorage.setItem('aegis_session_token', response.session_token);
+      sessionStorage.setItem('aegis_session_id', response.session_id);
 
       const agentMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -59,18 +62,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       };
 
       setMessages((prev) => [...prev, agentMessage]);
+      
+      // Auto-visualize the new graph data if it exists
+      if (response.graph_data) {
+        setActiveGraphData(response.graph_data);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to connect to AegisGraph engine.');
     } finally {
       setLoading(false);
     }
-  }, [role, llmProvider]);
+  }, [role]);
 
   const clearSession = useCallback(() => {
+    sessionStorage.removeItem('aegis_session_token');
     sessionStorage.removeItem('aegis_session_id');
     setMessages([]);
     setError(null);
+    setActiveGraphData(null);
   }, []);
+
+  // Changing role mid-conversation isn't allowed server-side (the role is
+  // locked into the session ticket at creation time) — so switching roles
+  // here intentionally starts a fresh, zero-risk session under the new role.
+  const changeRole = useCallback((newRole: RoleType) => {
+    setRole(newRole);
+    clearSession();
+  }, [clearSession]);
 
   const endActiveSession = useCallback(async () => {
     const sessionId = sessionStorage.getItem('aegis_session_id');
@@ -85,7 +103,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession]);
 
   return (
-    <ChatContext.Provider value={{ messages, loading, error, role, setRole, llmProvider, setLlmProvider, sendMessage, clearSession, endActiveSession }}>
+    <ChatContext.Provider value={{
+      messages, loading, error, role, setRole: changeRole,
+      sendMessage, clearSession, endActiveSession,
+      activeGraphData, setActiveGraphData
+    }}>
       {children}
     </ChatContext.Provider>
   );

@@ -2,8 +2,6 @@ import axios from 'axios';
 
 const API_BASE = 'http://localhost:8000/api/v1';
 
-export type LLMProviderType = 'gemini' | 'ollama';
-
 export interface AdaptivePolicy {
   risk_score: number;
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -14,7 +12,7 @@ export interface AdaptivePolicy {
 }
 
 export interface SignalValues {
-  semantic_drift: number;
+  semantic_focus: number;
   temporal_frequency: number;
   entity_focus: number;
   graph_footprint: number;
@@ -38,9 +36,8 @@ export interface TelemetryEvent {
 
 export interface ChatRequest {
   query: string;
-  session_id?: string;
+  session_token?: string;
   role?: string;
-  llm_provider?: LLMProviderType;
 }
 
 export interface GraphNode {
@@ -64,6 +61,7 @@ export interface GraphVisualizationPayload {
 export interface ChatResponse {
   answer: string;
   session_id: string;
+  session_token: string;
   intent: string;
   retrieval: {
     result_count: number;
@@ -78,16 +76,12 @@ export interface ChatResponse {
 export const chatApi = {
   async sendMessage(
     query: string,
-    sessionId?: string,
+    sessionToken?: string,
     role: string = 'Standard',
-    llmProvider?: LLMProviderType
   ): Promise<ChatResponse> {
     const payload: ChatRequest = { query, role };
-    if (sessionId) {
-      payload.session_id = sessionId;
-    }
-    if (llmProvider) {
-      payload.llm_provider = llmProvider;
+    if (sessionToken) {
+      payload.session_token = sessionToken;
     }
     const response = await axios.post<ChatResponse>(`${API_BASE}/chat`, payload);
     return response.data;

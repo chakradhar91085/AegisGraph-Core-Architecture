@@ -1,9 +1,10 @@
 import { useChat } from '../contexts/ChatContext';
-import { Shield, ShieldAlert, Activity, User, Cpu } from 'lucide-react';
+import { Shield, ShieldAlert, Activity, User } from 'lucide-react';
 import { ChatPanel } from '../components/ChatPanel';
+import { NetworkGraph } from '../components/NetworkGraph';
 
 export function QueryPlayground() {
-  const { messages, loading, error, role, setRole, llmProvider, setLlmProvider, sendMessage } = useChat();
+  const { messages, loading, error, role, setRole, sendMessage } = useChat();
 
   const telemetryHistory = messages
     .filter(m => m.sender === 'agent' && m.telemetry)
@@ -33,7 +34,7 @@ export function QueryPlayground() {
       </div>
 
       {/* Security & Controls Strip */}
-      <div className="mb-6 grid grid-cols-4 gap-4 z-10 shrink-0">
+      <div className="mb-6 grid grid-cols-3 gap-4 z-10 shrink-0">
         
         {/* Role Selector Box */}
         <div className="bg-[#0e0e0e] border border-[#1e1e1e] p-3 flex items-center justify-between">
@@ -56,39 +57,6 @@ export function QueryPlayground() {
           </div>
         </div>
 
-        {/* LLM Provider Box */}
-        <div className="bg-[#0e0e0e] border border-[#1e1e1e] p-3 flex items-center justify-between">
-          <div className="flex items-center gap-3 w-full">
-            <div className="w-8 h-8 rounded-sm bg-[#141414] border border-[#2e2e2e] flex items-center justify-center shrink-0">
-              <Cpu className="w-4 h-4 text-[#8a8a8a]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] text-[#5a5a5a] font-mono uppercase mb-0.5">LLM Provider</div>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => setLlmProvider('gemini')}
-                  className={`flex-1 px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider border transition-all ${
-                    llmProvider === 'gemini'
-                      ? 'bg-[#2196f3]/15 border-[#2196f3]/50 text-[#2196f3]'
-                      : 'bg-[#141414] border-[#2e2e2e] text-[#5a5a5a] hover:text-[#8a8a8a] hover:border-[#3e3e3e]'
-                  }`}
-                >
-                  Gemini
-                </button>
-                <button
-                  onClick={() => setLlmProvider('ollama')}
-                  className={`flex-1 px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider border transition-all ${
-                    llmProvider === 'ollama'
-                      ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-400'
-                      : 'bg-[#141414] border-[#2e2e2e] text-[#5a5a5a] hover:text-[#8a8a8a] hover:border-[#3e3e3e]'
-                  }`}
-                >
-                  Qwen 7B
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Live Risk Score Box */}
         <div className="bg-[#0e0e0e] border border-[#1e1e1e] p-3 flex items-center justify-between">
@@ -127,9 +95,17 @@ export function QueryPlayground() {
         </div>
       </div>
       
-      {/* Main Workspace (Chat) */}
-      <div className="flex-1 min-h-0 bg-[#0a0a0a] border border-[#1e1e1e] shadow-2xl overflow-hidden flex flex-col relative z-10">
-        <ChatPanel messages={messages} loading={loading} error={error} onSendMessage={sendMessage} />
+      {/* Main Workspace (Split View) */}
+      <div className="flex-1 min-h-0 flex gap-4 relative z-10">
+        {/* Left Column: Graph Visualization */}
+        <div className="flex-[3] min-w-0 flex flex-col h-full">
+          <NetworkGraph />
+        </div>
+
+        {/* Right Column: Chat Interface */}
+        <div className="flex-[2] min-w-0 flex flex-col h-full bg-[#0a0a0a] border border-[#1e1e1e] shadow-2xl overflow-hidden rounded-sm">
+          <ChatPanel messages={messages} loading={loading} error={error} onSendMessage={sendMessage} />
+        </div>
       </div>
     </div>
   );

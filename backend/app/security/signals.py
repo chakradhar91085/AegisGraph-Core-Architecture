@@ -1,5 +1,5 @@
 import math
-from typing import List
+from typing import List, Optional
 from app.core.config import settings
 from app.security.models import QueryRecord
 import logging
@@ -8,51 +8,61 @@ logger = logging.getLogger(__name__)
 
 class Signals:
     @staticmethod
-    def calculate_semantic_drift(current_emb: List[float], prev_emb: List[float]) -> float:
+    def calculate_semantic_focus(window_embeddings: List[List[float]]) -> float:
         """
-        S_sem(t) = 1 - cos(E_t, E_{t-1})
-        Assumes embeddings are already L2 normalized, so cos is just dot product.
-        Returns 0.0 on missing embedding.
+        S_sem(t) = 1/(|W|-1) * sum of cos(q_{t-i}, q_{t-i-1}) over consecutive
+        pairs in a sliding window W of recent query embeddings (paper Eq. 1).
+
+        A HIGH value means recent queries are semantically similar to each
+        other — i.e. the user is repeatedly circling the same topic, which is
+        the focused-probing behavior this signal exists to catch. This is the
+        opposite direction from "drift" (topic change), which is why this is
+        no longer named/interpreted as drift.
+
+        window_embeddings must be ordered oldest -> newest and should include
+        the current query's embedding as the last element. Embeddings are
+        assumed L2-normalized, so cosine similarity is just the dot product.
+
+        Raw cosine similarity is in [-1, 1]; linearly remapped to [0, 1] so
+        this signal is on the same scale as the other three (high = risk).
+        Returns 0.0 when there's insufficient history to form a pair.
         """
-        if not current_emb or not prev_emb:
+        usable = [e for e in window_embeddings if e]
+        if len(usable) < 2:
             return 0.0
-            
-        if len(current_emb) != len(prev_emb):
+
+        similarities = []
+        for i in range(len(usable) - 1):
+            a, b = usable[i], usable[i + 1]
+            if len(a) != len(b):
+                continue
+            dot_product = sum(x * y for x, y in zip(a, b))
+            dot_product = max(-1.0, min(1.0, dot_product))
+            similarities.append(dot_product)
+
+        if not similarities:
             return 0.0
-            
-        dot_product = sum(c * p for c, p in zip(current_emb, prev_emb))
-        
-        # Clamp dot_product to [-1.0, 1.0] due to floating point inaccuracies
-        dot_product = max(-1.0, min(1.0, dot_product))
-        
-        drift = 1.0 - dot_product
-        return float(max(0.0, min(1.0, drift))) # Strictly bounded to [0,1] without division. Negative cosine similarity will clip at 1.0.
+
+        mean_similarity = sum(similarities) / len(similarities)
+        focus = (mean_similarity + 1.0) / 2.0
+        return float(max(0.0, min(1.0, focus)))
 
     @staticmethod
-    def calculate_temporal_frequency(history: List[QueryRecord], current_time: float) -> float:
+    def calculate_temporal_frequency(prev_timestamp: Optional[float], current_time: float) -> float:
         """
-        S_temp(t) = min(1, N_t / tau)
-        history should only contain queries within the time window.
+        S_temp(t) = exp(-alpha_temp * delta_tau_t), where delta_tau_t is the
+        gap in seconds since the previous query (paper Eq. 2). Rapid-fire
+        queries push this toward 1.0; normal human pacing decays it toward 0.
+
+        Returns 0.0 for the first query of a session (no prior query to
+        measure a gap against).
         """
-        if not history:
+        if prev_timestamp is None:
             return 0.0
-            
-        # Get the previous query from history (since history does NOT contain current_time yet)
-        # Assuming the history contains previous queries in chronological order
-        # Wait, if history is empty, we return 0.0. The history passed in here is the trailing 60s window,
-        # but it might be empty if this is the first query in the session.
-        if len(history) == 0:
-            return 0.0
-            
-        prev_time = history[-1].timestamp
-        delta_tau = current_time - prev_time
-        
-        if delta_tau < 0.0:
-            delta_tau = 0.0
-            
-        alpha_temp = settings.SECURITY_ALPHA_TEMP
-        S_temp = math.exp(-alpha_temp * delta_tau)
-        
+
+        delta_tau = max(0.0, current_time - prev_timestamp)
+        alpha = settings.SECURITY_ALPHA_TEMP
+        S_temp = math.exp(-alpha * delta_tau)
         return float(max(0.0, min(1.0, S_temp)))
 
     @staticmethod

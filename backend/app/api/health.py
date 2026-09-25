@@ -26,7 +26,7 @@ async def neo4j_health_check():
 async def llm_health_check(provider: str = None):
     """
     Health check for the selected LLM provider.
-    Accepts ?provider=gemini or ?provider=ollama.
+    Accepts ?provider=ollama.
     """
     llm = get_llm_provider(provider)
     is_healthy = await llm.check_health()

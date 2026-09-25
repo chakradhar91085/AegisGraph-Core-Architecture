@@ -1,153 +1,48 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-
-function DotWaveCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let raf: number;
-    let t = 0;
-
-    const SPACING = 28;
-    const DOT_R   = 1.5;
-
-    const resize = () => {
-      canvas.width  = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const cols = Math.ceil(canvas.width  / SPACING) + 1;
-      const rows = Math.ceil(canvas.height / SPACING) + 1;
-
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const bx = col * SPACING;
-          const by = row * SPACING;
-
-          // wave displacement: diagonal propagation
-          const wave = Math.sin((col * 0.35) + (row * 0.35) - t * 2.2);
-          const dy   = wave * 5;
-          const alpha = 0.06 + Math.abs(wave) * 0.22;
-
-          ctx.beginPath();
-          ctx.arc(bx, by + dy, DOT_R, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(33,150,243,${alpha.toFixed(3)})`;
-          ctx.fill();
-        }
-      }
-
-      t += 0.016;
-      raf = requestAnimationFrame(draw);
-    };
-
-    draw();
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, []);
-
-  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />;
-}
+import { SignedIn, SignedOut, SignInButton } from "@clerk/clerk-react";
+import { ShieldCheck } from "lucide-react";
 
 export function CtaSection() {
-  const [vis, setVis] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) setVis(true); },
-      { threshold: 0.2 }
-    );
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-
   return (
-    <section className="relative border-t border-[#1e1e1e]">
-      <div
-        ref={ref}
-        className={`max-w-[1400px] mx-auto px-6 lg:px-12 transition-all duration-700 ${vis ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
-      >
-        {/* Giant CTA block */}
-        <div className="border border-[#1e1e1e] relative overflow-hidden my-12 lg:my-16">
-          {/* Dot wave background */}
-          <DotWaveCanvas />
+    <section className="py-24 bg-slate-950 relative border-t border-slate-900">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-12 relative z-10">
+        <div className="bg-slate-900 border border-slate-800 rounded-lg p-10 md:p-16 text-center max-w-4xl mx-auto flex flex-col items-center">
+          
+          <div className="mb-6">
+            <ShieldCheck className="w-12 h-12 text-blue-500" />
+          </div>
+          
+          <h2 className="font-sans font-semibold text-3xl md:text-4xl text-slate-50 mb-4 tracking-tight">
+            EXPLORE BEHAVIORAL SECURITY FOR GRAPH-RAG
+          </h2>
+          
+          <p className="text-slate-400 text-lg leading-relaxed font-sans mb-10 max-w-2xl">
+            See how AegisGraph protects enterprise knowledge by monitoring interaction patterns and controlling retrieval dynamically.
+          </p>
 
-          {/* Corner accents */}
-          <div className="absolute top-0 left-0 w-16 h-16 border-r border-b border-[#2196f3]/30" />
-          <div className="absolute top-0 right-0 w-16 h-16 border-l border-b border-[#2196f3]/30" />
-          <div className="absolute bottom-0 left-0 w-16 h-16 border-r border-t border-[#2196f3]/30" />
-          <div className="absolute bottom-0 right-0 w-16 h-16 border-l border-t border-[#2196f3]/30" />
-
-          {/* Subtle glow */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{ background: "radial-gradient(ellipse 70% 60% at 50% 100%, rgba(33,150,243,0.04) 0%, transparent 70%)" }}
-          />
-
-          <div className="relative z-10 px-8 lg:px-20 py-16 lg:py-24 text-center">
-            {/* Status */}
-            <div className="flex items-center justify-center gap-3 mb-10">
-              <span className="status-pulse w-2 h-2 rounded-full bg-[#22c55e] inline-block" />
-              <span className="font-mono text-[11px] tracking-[0.2em] text-[#22c55e]">AEGISGRAPH SYSTEM · ONLINE</span>
-            </div>
-
-            {/* Headline */}
-            <h2 className="font-display text-[10vw] leading-[0.88] tracking-tight text-[#f2ede6] uppercase mb-12">
-              SECURE YOUR
-              <br />
-              <span className="text-[#2196f3]">GRAPH-RAG</span>
-            </h2>
-
-            <p className="font-mono text-sm text-[#5a5a5a] mb-12 max-w-lg mx-auto leading-relaxed">
-              Deploy the first Graph-RAG security layer with adaptive behavioral policies. Protect your knowledge graph from unauthorized exploration.
-            </p>
-
-            {/* CTAs */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 w-full justify-center">
+            <SignedOut>
+              <SignInButton mode="modal" forceRedirectUrl="/app">
+                <button className="inline-flex items-center justify-center gap-2 bg-blue-600 text-slate-50 font-sans text-sm px-6 py-3.5 hover:bg-blue-500 transition-colors font-semibold rounded-sm">
+                  Open AegisGraph
+                </button>
+              </SignInButton>
+            </SignedOut>
+            <SignedIn>
               <a
                 href="/app"
-                className="group inline-flex items-center gap-8 bg-[#2196f3] text-[#050505] font-mono text-sm tracking-widest px-8 py-5 hover:bg-[#42a5f5] transition-colors font-semibold"
+                className="inline-flex items-center justify-center gap-2 bg-blue-600 text-slate-50 font-sans text-sm px-6 py-3.5 hover:bg-blue-500 transition-colors font-semibold rounded-sm"
               >
-                LAUNCH AEGISGRAPH
-                <span className="transition-transform group-hover:translate-x-1">→</span>
+                Open AegisGraph
               </a>
-              <a
-                href="#"
-                className="group inline-flex items-center gap-8 border border-[#1e1e1e] text-[#f2ede6] font-mono text-sm tracking-widest px-8 py-5 hover:border-[#2196f3]/40 hover:text-[#2196f3] transition-colors"
-              >
-                READ RESEARCH
-                <span className="transition-transform group-hover:translate-x-1">→</span>
-              </a>
-            </div>
-
-            {/* Social proof row */}
-            <div className="flex items-center justify-center gap-8 mt-10 flex-wrap">
-              {[
-                { v: "O(1)",   l: "telemetry overhead" },
-                { v: "100%",   l: "local processing" },
-                { v: "ZERO",   l: "data leakage" },
-                { v: "D3.js",  l: "graph visualization" },
-              ].map(s => (
-                <div key={s.l} className="text-center">
-                  <div className="font-display text-2xl text-[#2196f3]">{s.v}</div>
-                  <div className="font-mono text-[9px] text-[#3a3a3a] tracking-widest">{s.l}</div>
-                </div>
-              ))}
-            </div>
+            </SignedIn>
+            <a
+              href="#architecture"
+              className="inline-flex items-center justify-center gap-2 border border-slate-700 text-slate-300 font-sans text-sm px-6 py-3.5 hover:bg-slate-800 hover:text-slate-50 transition-colors rounded-sm"
+            >
+              View Architecture
+            </a>
           </div>
+
         </div>
       </div>
     </section>

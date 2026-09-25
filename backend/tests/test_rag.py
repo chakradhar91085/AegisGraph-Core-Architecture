@@ -41,7 +41,7 @@ async def _test_rag_end_to_end_sent_emails():
     print("\n--- Test: E2E Sent Emails (Real Data, Mocked LLM) ---")
     
     # We mock OllamaClient's generate method and embedding
-    with patch("app.rag.service.ollama_client.generate", new_callable=AsyncMock) as mock_generate, \
+    with patch("app.llm.ollama_provider.OllamaProvider.generate", new_callable=AsyncMock) as mock_generate, \
          patch("app.security.service.embedding_provider.get_embedding", new_callable=AsyncMock) as mock_embed:
         
         mock_generate.return_value = "Christopher Calger sent 3 emails based on the context."
@@ -83,7 +83,7 @@ async def _test_rag_end_to_end_sent_emails():
 async def _test_rag_unsupported_intent():
     print("\n--- Test: Unsupported Intent ---")
     
-    with patch("app.rag.service.ollama_client.generate", new_callable=AsyncMock) as mock_generate, \
+    with patch("app.llm.ollama_provider.OllamaProvider.generate", new_callable=AsyncMock) as mock_generate, \
          patch("app.security.service.embedding_provider.get_embedding", new_callable=AsyncMock) as mock_embed:
          
         mock_embed.return_value = [0.1, 0.2, 0.3]
@@ -104,7 +104,7 @@ async def _test_rag_unsupported_intent():
 async def _test_rag_empty_retrieval():
     print("\n--- Test: Empty Retrieval Results ---")
     
-    with patch("app.rag.service.ollama_client.generate", new_callable=AsyncMock) as mock_generate, \
+    with patch("app.llm.ollama_provider.OllamaProvider.generate", new_callable=AsyncMock) as mock_generate, \
          patch("app.security.service.embedding_provider.get_embedding", new_callable=AsyncMock) as mock_embed:
          
         mock_embed.return_value = [0.1, 0.2, 0.3]
@@ -142,7 +142,7 @@ async def _test_prompt_injection_defense():
     with patch("app.rag.service.retrieval_service.execute", new_callable=AsyncMock) as mock_retrieval:
         mock_retrieval.return_value = adversarial_response
         
-        with patch("app.rag.service.ollama_client.generate", new_callable=AsyncMock) as mock_generate, \
+        with patch("app.llm.ollama_provider.OllamaProvider.generate", new_callable=AsyncMock) as mock_generate, \
              patch("app.security.service.embedding_provider.get_embedding", new_callable=AsyncMock) as mock_embed:
              
             mock_generate.return_value = "I am a helpful assistant."
@@ -182,7 +182,7 @@ async def _test_adaptive_response_control():
     with patch("app.rag.service.aegis_security.observe_query", new_callable=AsyncMock) as mock_observe, \
          patch("app.rag.service.retrieval_service.execute", new_callable=AsyncMock) as mock_retrieve, \
          patch("app.rag.service.aegis_security.calculate_risk", new_callable=AsyncMock) as mock_calc, \
-         patch("app.rag.service.ollama_client.generate", new_callable=AsyncMock) as mock_generate:
+         patch("app.llm.ollama_provider.OllamaProvider.generate", new_callable=AsyncMock) as mock_generate:
          
         mock_generate.return_value = "Mock answer"
         from app.security.models import TelemetryEvent

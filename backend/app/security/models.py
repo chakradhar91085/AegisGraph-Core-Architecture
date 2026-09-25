@@ -22,7 +22,7 @@ class AdaptivePolicy(BaseModel):
     effective_graph_depth: int = Field(..., ge=0)
     response_mode: ResponseMode = ResponseMode.ALLOW
 class SignalValues(BaseModel):
-    semantic_drift: float = Field(0.0, ge=0.0, le=1.0)
+    semantic_focus: float = Field(0.0, ge=0.0, le=1.0)
     temporal_frequency: float = Field(0.0, ge=0.0, le=1.0)
     entity_focus: float = Field(0.0, ge=0.0, le=1.0)
     graph_footprint: float = Field(0.0, ge=0.0, le=1.0)

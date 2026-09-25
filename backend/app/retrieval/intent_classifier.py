@@ -28,8 +28,8 @@ INTENT_RULES = [
         r"(what\s+can\s+(i|you)\s+(do|explore|search))"
         r"|(how\s+does\s+aegisgraph\s+work)"
         r"|(what\s+(is|information\s+is)\s+(in|available))"
-        r"|(help)"
-        r"|(hello|hi\b|greetings)",
+        r"|(\bhelp\b)"
+        r"|(\bhello\b|\bhi\b|\bgreetings\b)",
         re.IGNORECASE,
     ), RetrievalIntent.GRAPH_DISCOVERY),
 
@@ -60,7 +60,7 @@ INTENT_RULES = [
     # Sent emails
     (re.compile(
         r"(emails?\s+(sent|from|written)\s+by)"
-        r"|(sent\s+(by|emails?|mail))"
+        r"|(\bsent\s+(by|emails?|mail))"
         r"|(emails?\s+from\b)"
         r"|(emails?.*send)"
         r"|(outbox)",
@@ -109,6 +109,14 @@ INTENT_RULES = [
         r"|(what.*talk\s+about)",
         re.IGNORECASE,
     ), RetrievalIntent.TOPICAL_FOOTPRINT),
+
+    # Semantic Search / Vector Search
+    (re.compile(
+        r"(what\s+emails?.*(are\s+about|discuss|dicuss|talk\s+about|mention|cover|about))"
+        r"|(find\s+emails?.*(about|discussing|mentioning))"
+        r"|(search\s+emails?\s+for)",
+        re.IGNORECASE,
+    ), RetrievalIntent.SEMANTIC_SEARCH),
 
     # Employee lookup (broadest — must come last among specific intents)
     (re.compile(

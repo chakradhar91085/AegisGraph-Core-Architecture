@@ -1,7 +1,7 @@
 """
 AegisGraph — Abstract LLM Provider Interface.
 
-All LLM providers (Gemini, Ollama) must implement this interface.
+All LLM providers (Ollama) must implement this interface.
 This ensures the rest of the application can swap providers without
 touching retrieval, security, or RAG logic.
 """
@@ -15,7 +15,7 @@ class BaseLLMProvider(ABC):
     @property
     @abstractmethod
     def provider_name(self) -> str:
-        """Return a human-readable provider identifier (e.g., 'gemini', 'ollama')."""
+        """Return a human-readable provider identifier (e.g., 'ollama')."""
         ...
 
     @abstractmethod

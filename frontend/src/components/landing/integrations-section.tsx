@@ -6,7 +6,7 @@ const ROW1 = [
   { name: "OpenAI",      cat: "LLM" },
   { name: "Anthropic",   cat: "LLM" },
   { name: "Mistral",     cat: "LLM" },
-  { name: "Gemini",      cat: "LLM" },
+
   { name: "PostgreSQL",  cat: "DATABASE" },
   { name: "Redis",       cat: "CACHE" },
   { name: "MongoDB",     cat: "DATABASE" },

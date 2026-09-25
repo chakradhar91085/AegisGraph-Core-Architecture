@@ -19,6 +19,7 @@ class RetrievalIntent(str, Enum):
     TOPICAL_FOOTPRINT = "topical_footprint"
     ORGANIZATION_INFO = "organization_info"
     PERSON_CONNECTION = "person_connection"
+    SEMANTIC_SEARCH = "semantic_search"
     UNSUPPORTED = "unsupported_intent"
 
 

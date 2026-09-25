@@ -18,7 +18,7 @@ class RiskEngine:
             return 0.0
             
         r_t = (
-            (alpha * signals.semantic_drift) +
+            (alpha * signals.semantic_focus) +
             (beta * signals.temporal_frequency) +
             (gamma * signals.entity_focus) +
             (delta * signals.graph_footprint)

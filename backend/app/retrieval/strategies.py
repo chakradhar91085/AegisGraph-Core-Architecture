@@ -147,10 +147,9 @@ class RetrievalStrategies:
     # ------------------------------------------------------------------
 
     async def get_person_connection(
-        self, email_1: str, email_2: str, max_depth: int
+        self, email_1: str, email_2: str, limit: int
     ) -> List[Dict[str, Any]]:
         """Find a communication path between two people via shared emails."""
-        safe_depth = self._cap_limit(max_depth)
         # Use a 2-hop pattern: Person1 -[:SENT]-> Email <-[:SENT_TO]- (implicit) -> Person2
         query = """
         MATCH (p1:Person {email: $email1})-[:SENT]->(e:Email)-[:SENT_TO]->(p2:Person {email: $email2})
@@ -158,7 +157,27 @@ class RetrievalStrategies:
         LIMIT $limit
         """
         return await self.db.execute_read(
-            query, {"email1": email_1, "email2": email_2, "limit": self._cap_limit(safe_depth)}
+            query, {"email1": email_1, "email2": email_2, "limit": self._cap_limit(limit)}
+        )
+
+    # ------------------------------------------------------------------
+    # Strategy G — Semantic Graph Search (Hybrid RAG)
+    # ------------------------------------------------------------------
+
+    async def semantic_graph_search(
+        self, embedding: List[float], limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Find emails semantically similar to a query embedding, and traverse the graph to get sender context."""
+        query = """
+        CALL db.index.vector.queryNodes('email_embeddings', $limit, $embedding)
+        YIELD node AS e, score
+        OPTIONAL MATCH (p:Person)-[:SENT]->(e)
+        RETURN e.subject AS subject, e.body AS body, e.sent_at AS timestamp,
+               p.email AS sender_email, p.name AS sender_name, score
+        ORDER BY score DESC
+        """
+        return await self.db.execute_read(
+            query, {"embedding": embedding, "limit": self._cap_limit(limit)}
         )
 
 # Module-level singleton

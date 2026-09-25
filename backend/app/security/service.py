@@ -16,37 +16,39 @@ class AegisSecurityService:
     async def observe_query(self, session_id: str, query: str, role: str = "Standard") -> Dict[str, Any]:
         """
         Step 1: Pre-retrieval observation.
-        Fetches embedding, calculates semantic drift, returns partial context.
+        Fetches embedding, calculates the semantic-focus signal over the
+        recent query window, returns partial context.
         """
         current_time = time.time()
-        
+
         # Cleanup old history based on temporal window
         session_store.cleanup_old_history(session_id, current_time)
-        
+
         # Fetch current embedding
         current_embedding = await embedding_provider.get_embedding(query)
-        
-        # Get previous query for semantic drift
-        prev_record = session_store.get_previous_query(session_id)
-        prev_embedding = prev_record.embedding if prev_record else None
-        
-        # Calculate Semantic Drift
-        if prev_embedding and current_embedding:
-            semantic_drift = signals_calculator.calculate_semantic_drift(current_embedding, prev_embedding)
-        else:
-            semantic_drift = 0.0
-            
-        # Calculate Adaptive Policy based on the smoothed risk BEFORE this query
+
+        # Semantic focus looks at a small sliding window of recent queries
+        # (paper Eq. 1), not just the single previous one.
         state = session_store.get_or_create_session(session_id)
+        window_size = settings.SECURITY_SEMANTIC_WINDOW_SIZE
+        prior_count = max(0, window_size - 1)
+        prior_embeddings = (
+            [q.embedding for q in state.history[-prior_count:] if q.embedding]
+            if prior_count > 0 else []
+        )
+        window_embeddings = prior_embeddings + ([current_embedding] if current_embedding else [])
+        semantic_focus = signals_calculator.calculate_semantic_focus(window_embeddings)
+
+        # Calculate Adaptive Policy based on the smoothed risk BEFORE this query
         current_policy = policy_engine.calculate_policy(state.last_smoothed_risk, role)
-            
+
         return {
             "session_id": session_id,
             "query": query,
             "role": role,
             "timestamp": current_time,
             "embedding": current_embedding,
-            "semantic_drift": semantic_drift,
+            "semantic_focus": semantic_focus,
             "policy": current_policy
         }
 
@@ -58,17 +60,9 @@ class AegisSecurityService:
         session_id = ctx["session_id"]
         current_time = ctx["timestamp"]
         
-        # Extract entities from retrieval response (if applicable)
-        # We need to map the resolved query entities into the context.
-        # But wait, retrieval_response doesn't expose the resolved entities directly,
-        # it just exposes `intent` and `strategy` and `results`.
-        # However, we can use the `query` text or `intent` to approximate, or if the intent was employee_lookup, 
-        # we can extract the employee name from the results.
-        # Actually, Phase 2 entity_resolver is what extracted entities.
-        # For Phase 4A, let's extract words from the query that look like entities or use the results.
-        # To keep it completely isolated, we will just use the intent and results. 
-        # If it's employee_lookup, the entity is the name in the first result.
-        
+        # Entities come from whatever the retrieval layer already resolved
+        # for this query (e.g. the employee name in an employee_lookup) —
+        # cheap and avoids a second, separate entity-extraction pass.
         entities = []
         if hasattr(retrieval_response, "resolved_entities"):
             for resolved in retrieval_response.resolved_entities:
@@ -78,14 +72,16 @@ class AegisSecurityService:
         # Filter out empty entities just in case
         entities = [e for e in entities if e]
         
-        # Get history for temporal and entity calculations
-        state = session_store.get_or_create_session(session_id)
+        # Get history for temporal and entity calculations.
         # History currently does NOT include the CURRENT query yet.
+        state = session_store.get_or_create_session(session_id)
         history = [q for q in state.history if q.timestamp >= (current_time - settings.SECURITY_TEMPORAL_WINDOW_SECONDS)]
-        
-        # Calculate Temporal Frequency using the new delta_tau exponential decay model
-        temporal_frequency = signals_calculator.calculate_temporal_frequency(history, current_time)
-        
+
+        # Temporal frequency: exponential decay on the gap since the last
+        # query (paper Eq. 2), not a count over the window.
+        prev_timestamp = state.history[-1].timestamp if state.history else None
+        temporal_frequency = signals_calculator.calculate_temporal_frequency(prev_timestamp, current_time)
+
         # Calculate Entity Focus (including current query's entities)
         # Create a temporary history list adding the current record
         temp_history = history + [QueryRecord(timestamp=current_time, query=ctx["query"], entities=entities)]
@@ -98,7 +94,7 @@ class AegisSecurityService:
         )
         
         signals = SignalValues(
-            semantic_drift=ctx["semantic_drift"],
+            semantic_focus=ctx["semantic_focus"],
             temporal_frequency=temporal_frequency,
             entity_focus=entity_focus,
             graph_footprint=graph_footprint

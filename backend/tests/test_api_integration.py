@@ -18,46 +18,100 @@ class TestAPIIntegration(unittest.TestCase):
             "retrieval": {"result_count": 1},
             "telemetry": {"smoothed_risk": 0.05}
         }
-        
-        # Request without session_id
+
+        # Request without a session_token -> a fresh, server-generated session
         response = self.client.post("/api/v1/chat", json={"query": "Who is Alice?"})
-        
+
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        
+
         self.assertIn("session_id", data)
         self.assertTrue(len(data["session_id"]) > 0)
+        self.assertIn("session_token", data)
+        self.assertTrue(len(data["session_token"]) > 0)
         self.assertEqual(data["answer"], "Mock Answer")
-        
+
         # Verify the generated session_id was passed to GraphRAGService
         passed_session_id = mock_generate_answer.call_args[1].get("session_id")
         self.assertEqual(passed_session_id, data["session_id"])
 
     @patch("app.api.chat.graph_rag_service.generate_answer")
-    def test_session_continuity(self, mock_generate_answer):
-        # Mock the service response
+    def test_forged_session_token_is_not_trusted(self, mock_generate_answer):
+        # This is the vulnerability this endpoint used to have: a client
+        # could pick any string as its "session id" and the server would
+        # treat it as an existing, continuing session -- silently resetting
+        # or hijacking accumulated risk state. A client-chosen string that
+        # isn't a real signed ticket must now be treated as brand new.
         mock_generate_answer.return_value = {
             "answer": "Mock Answer",
             "intent": "sent_emails",
             "retrieval": {"result_count": 5},
             "telemetry": {"smoothed_risk": 0.25}
         }
-        
-        custom_session = "frontend-persistent-session-123"
-        
-        # Request WITH session_id
+
+        forged_token = "attacker-chosen-session-id"
         response = self.client.post("/api/v1/chat", json={
             "query": "What emails did she send?",
-            "session_id": custom_session
+            "session_token": forged_token
         })
-        
+
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        
-        # Assert the same session ID was returned and passed along
-        self.assertEqual(data["session_id"], custom_session)
+
+        self.assertNotEqual(data["session_id"], forged_token)
         passed_session_id = mock_generate_answer.call_args[1].get("session_id")
-        self.assertEqual(passed_session_id, custom_session)
+        self.assertNotEqual(passed_session_id, forged_token)
+        self.assertEqual(passed_session_id, data["session_id"])
+
+    @patch("app.api.chat.graph_rag_service.generate_answer")
+    def test_session_continuity_via_issued_token(self, mock_generate_answer):
+        # Genuine continuity DOES still work -- but only through a token the
+        # server itself issued, never through a client-chosen identifier.
+        mock_generate_answer.return_value = {
+            "answer": "Mock Answer",
+            "intent": "sent_emails",
+            "retrieval": {"result_count": 5},
+            "telemetry": {"smoothed_risk": 0.25}
+        }
+
+        first = self.client.post("/api/v1/chat", json={"query": "Who is Alice?", "role": "Analyst"})
+        first_data = first.json()
+        token = first_data["session_token"]
+        session_id = first_data["session_id"]
+
+        second = self.client.post("/api/v1/chat", json={
+            "query": "What emails did she send?",
+            "session_token": token
+        })
+        second_data = second.json()
+
+        self.assertEqual(second_data["session_id"], session_id)
+        passed_session_id = mock_generate_answer.call_args[1].get("session_id")
+        self.assertEqual(passed_session_id, session_id)
+
+    @patch("app.api.chat.graph_rag_service.generate_answer")
+    def test_role_cannot_be_changed_mid_session(self, mock_generate_answer):
+        # The other half of the same vulnerability: a client could claim a
+        # different (higher-privilege) role on a later message of the same
+        # conversation. Role is now locked into the session token at
+        # creation time and later claims are ignored.
+        mock_generate_answer.return_value = {
+            "answer": "Mock Answer",
+            "intent": "employee_lookup",
+            "retrieval": {"result_count": 1},
+            "telemetry": {"smoothed_risk": 0.05}
+        }
+
+        first = self.client.post("/api/v1/chat", json={"query": "Who is Alice?", "role": "Auditor"})
+        token = first.json()["session_token"]
+        self.assertEqual(mock_generate_answer.call_args[1].get("role"), "Auditor")
+
+        self.client.post("/api/v1/chat", json={
+            "query": "What emails did she send?",
+            "session_token": token,
+            "role": "Standard"
+        })
+        self.assertEqual(mock_generate_answer.call_args[1].get("role"), "Auditor")
 
     def test_retrieval_bypass_removed(self):
         # Ensure the direct retrieval route returns 404 (Not Found)
@@ -69,7 +123,7 @@ class TestAPIIntegration(unittest.TestCase):
         
         self.assertEqual(response.status_code, 404)
 
-    @patch("app.rag.service.ollama_client.generate")
+    @patch("app.llm.ollama_provider.OllamaProvider.generate")
     def test_end_to_end_telemetry_fields(self, mock_llm_generate):
         # Mock the LLM to return a fast answer, let everything else run normally
         mock_llm_generate.return_value = "Mocked LLM Answer"

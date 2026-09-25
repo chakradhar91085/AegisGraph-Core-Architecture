@@ -197,10 +197,10 @@ class ContextBuilder:
         if header:
             parts.append(header)
         for row in results:
-            names = " -> ".join(row.get('path_names', []))
-            weights = ", ".join(str(w) for w in row.get('path_weights', []))
-            parts.append(f"- Path: {names}")
-            parts.append(f"  Observed email interactions along path: {weights}")
+            from_email = row.get('from_email', 'Unknown')
+            to_email = row.get('to_email', 'Unknown')
+            subject = row.get('via_email_subject', '')
+            parts.append(f"- Path: {from_email} -> {to_email} (via email: \"{subject}\")")
         return ["\n".join(parts)]
 
 # Module-level singleton

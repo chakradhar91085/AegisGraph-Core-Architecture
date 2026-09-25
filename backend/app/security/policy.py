@@ -2,11 +2,15 @@ import math
 from app.core.config import settings
 from app.security.models import AdaptivePolicy, RiskLevel, ResponseMode
 
-# Static Role Policies
+# Static Role Policies.
+# Standard's depth must be >= 2 so its baseline can still satisfy the most
+# basic email-retrieval intents (sent_emails/received_emails, depth 2) at
+# low risk -- a depth of 1 would permanently restrict them regardless of
+# behavior, which defeats the point of a "default working" role.
 ROLE_POLICIES = {
     "Auditor": {"max_context_limit": 50, "max_graph_depth": 5},
     "Analyst": {"max_context_limit": 30, "max_graph_depth": 3},
-    "Standard": {"max_context_limit": 10, "max_graph_depth": 1},
+    "Standard": {"max_context_limit": 10, "max_graph_depth": 2},
 }
 
 class PolicyEngine:
@@ -22,11 +26,11 @@ class PolicyEngine:
         theta_mid = settings.SECURITY_THETA_MID
         theta_slope = settings.SECURITY_THETA_SLOPE
         
-        # Determine discrete risk level
-        # Thresholds calibrated for EWMA λ=0.4 to be reachable in 3-6 queries
-        if ewma_risk < 0.15:
+        # Determine discrete risk level.
+        # Bands match the paper's Appendix A.2 (moderate: 0.35 <= risk < 0.65).
+        if ewma_risk < 0.35:
             level = RiskLevel.LOW
-        elif ewma_risk < 0.35:
+        elif ewma_risk < 0.65:
             level = RiskLevel.MEDIUM
         else:
             level = RiskLevel.HIGH
@@ -49,9 +53,12 @@ class PolicyEngine:
         k_baseline = float(min(settings.MAX_RECORDS, role_policy["max_context_limit"]))
         d_baseline = float(min(settings.SECURITY_GRAPH_MAX_DEPTH, role_policy["max_graph_depth"]))
         
-        # Effective constraints
-        k_eff = max(1, math.floor(kappa_t * k_baseline))
-        d_eff = max(0, math.floor(kappa_t * d_baseline))
+        # Effective constraints.
+        # Rounded (not floored) so a low-risk session at a small baseline
+        # (e.g. Standard role, d_baseline=1) isn't permanently truncated to
+        # zero access even when kappa_t is near its 1.0 ceiling.
+        k_eff = max(1, round(kappa_t * k_baseline))
+        d_eff = max(0, round(kappa_t * d_baseline))
         
         # Determine Response Mode
         if level == RiskLevel.HIGH:

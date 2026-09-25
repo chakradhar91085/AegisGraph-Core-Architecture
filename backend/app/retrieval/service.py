@@ -36,6 +36,7 @@ INTENT_DEPTH_MAP = {
     RetrievalIntent.TOPICAL_FOOTPRINT: 1,
     RetrievalIntent.ORGANIZATION_INFO: 1,
     RetrievalIntent.PERSON_CONNECTION: 1,
+    RetrievalIntent.SEMANTIC_SEARCH: 2,
     RetrievalIntent.UNSUPPORTED: 0
 }
 
@@ -172,6 +173,9 @@ class RetrievalService:
 
         elif intent == RetrievalIntent.PERSON_CONNECTION:
             return await self._handle_person_connection(request, intent, extracted_params, llm_provider)
+
+        elif intent == RetrievalIntent.SEMANTIC_SEARCH:
+            return await self._handle_semantic_search(request, intent)
 
         # Should not reach here
         return RetrievalResponse(
@@ -449,11 +453,12 @@ class RetrievalService:
             
         email1 = resolved1.matches[0]["email"]
         email2 = resolved2.matches[0]["email"]
-        
-        # Determine strict bounded limit based on effective graph depth. We bound it aggressively to min(request.max_depth, 3) 
-        # so even a permissive policy doesn't result in massive arbitrary traversals.
-        safe_depth = min(request.max_depth, 3)
-        if safe_depth < 1:
+
+        # Depth still gates whether this traversal is permitted at all (a
+        # low policy depth blocks the query entirely), but the *number of
+        # rows returned* is governed by request.limit, not depth — depth and
+        # row-count are different things and shouldn't be conflated.
+        if request.max_depth < 1:
              return RetrievalResponse(
                 query=request.query,
                 intent=intent.value,
@@ -463,8 +468,8 @@ class RetrievalService:
                 strategy="person_connection",
                 metadata={"reason": "Graph depth limit prevents path traversal."}
             )
-        
-        raw_results = await self.strategies.get_person_connection(email1, email2, safe_depth)
+
+        raw_results = await self.strategies.get_person_connection(email1, email2, request.limit)
         results = _serialize_results(raw_results)
         return RetrievalResponse(
             query=request.query,
@@ -475,6 +480,45 @@ class RetrievalService:
             strategy="person_connection"
         )
 
+    async def _handle_semantic_search(
+        self, request: RetrievalRequest, intent: RetrievalIntent
+    ) -> RetrievalResponse:
+        """Handle semantic_search intent by embedding the query and doing vector search."""
+        try:
+            from app.llm.ollama_provider import OllamaProvider
+            provider = OllamaProvider()
+            
+            # Embed the user query via Ollama
+            embedding = await provider.embed_query(request.query)
+            
+            if not embedding:
+                raise ValueError("Received empty embedding from Ollama.")
+            
+            # Use bounded limit for semantic search based on effective context limit
+            safe_limit = request.limit
+            
+            # Execute vector search
+            raw_results = await self.strategies.semantic_graph_search(embedding, limit=safe_limit)
+            results = _serialize_results(raw_results)
+            
+            return RetrievalResponse(
+                query=request.query,
+                intent=intent.value,
+                results=results,
+                result_count=len(results),
+                strategy="semantic_graph_search",
+                metadata={"limit_applied": safe_limit}
+            )
+        except Exception as e:
+            logger.error(f"Semantic search failed: {e}")
+            return RetrievalResponse(
+                query=request.query,
+                intent=intent.value,
+                results=[],
+                result_count=0,
+                strategy="semantic_graph_search",
+                metadata={"reason": "Vector search failed or index is not ready."}
+            )
 
 # Module-level singleton
 retrieval_service = RetrievalService()

@@ -6,6 +6,5 @@ python-dotenv>=1.0.1
 pydantic>=2.6.0
 pydantic-settings>=2.1.0
 sentence-transformers
-google-genai
 sqlalchemy>=2.0.25
 asyncpg>=0.29.0

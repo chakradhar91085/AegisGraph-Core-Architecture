@@ -27,20 +27,13 @@ class SessionStore:
         window = settings.SECURITY_TEMPORAL_WINDOW_SECONDS
         
         cutoff_time = current_time - window
-        
-        # Keep only records within the window
-        # We always keep at least the very last record if it exists for semantic drift,
-        # but semantic drift only uses the IMMEDIATELY previous query.
-        # So we can keep history for temporal/entity signals, and the last query for semantic drift.
-        # Actually, semantic drift just needs the last embedding. We can extract it before filtering, 
-        # but to keep it simple, we just use the last item in the history list regardless of window,
-        # OR we just say semantic drift only applies if the previous query was within the window.
-        # Let's keep it strictly within the window for now, or just retain the last query explicitly.
-        
+
+        # Keep records within the window (used for temporal/entity signals).
         new_history = [q for q in state.history if q.timestamp >= cutoff_time]
-        
-        # Always retain the absolute last query so we can compute semantic drift
-        # even if it was just outside the temporal window.
+
+        # Always retain the single most recent query even if it falls just
+        # outside the window, since the semantic-focus and temporal signals
+        # need it as the reference point for the *next* query.
         if state.history and not new_history:
             new_history = [state.history[-1]]
             
@@ -53,11 +46,5 @@ class SessionStore:
     def update_smoothed_risk(self, session_id: str, risk: float):
         state = self.get_or_create_session(session_id)
         state.last_smoothed_risk = risk
-
-    def get_previous_query(self, session_id: str) -> QueryRecord | None:
-        state = self.get_or_create_session(session_id)
-        if not state.history:
-            return None
-        return state.history[-1]
 
 session_store = SessionStore()

@@ -1,154 +1,58 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-
-const FEATURES = [
-  {
-    id: "01",
-    tag: "ANALYSIS",
-    title: "BEHAVIORAL\nRISK",
-    desc: "Evaluate query sequences rather than treating every request independently. AegisGraph detects when seemingly harmless queries combine into targeted reconnaissance.",
-    stat: { v: "EWMA", l: "risk scoring" },
-  },
-  {
-    id: "02",
-    tag: "MONITORING",
-    title: "ENTITY\nEXPLORATION",
-    desc: "Detect focused exploration of specific people, organizations, entities, or graph regions. Track the semantic drift and concentration of a user's session.",
-    stat: { v: "O(1)", l: "telemetry overhead" },
-  },
-  {
-    id: "03",
-    tag: "CONTROL",
-    title: "ADAPTIVE\nACCESS",
-    desc: "Dynamically reduce accessible graph depth and retrieval context as behavioral risk increases. Prevent deep traversal without breaking legitimate shallow queries.",
-    stat: { v: "0-4", l: "dynamic depth range" },
-  },
-  {
-    id: "04",
-    tag: "SECURITY",
-    title: "SECURE\nRETRIEVAL",
-    desc: "Ensure retrieval is mediated by the security and policy layer. The local LLM never sees information that violates the active behavioral policy.",
-    stat: { v: "100%", l: "policy enforcement" },
-  },
-  {
-    id: "05",
-    tag: "VISUALIZATION",
-    title: "EXPLORATION\nVISUALIZATION",
-    desc: "Visualize the exact portion of the knowledge graph being explored during a session. See what the user sees, and how the policy restricts their view.",
-    stat: { v: "D3", l: "force-directed layout" },
-  },
-  {
-    id: "06",
-    tag: "AUDITING",
-    title: "SECURITY\nTELEMETRY",
-    desc: "Expose risk evolution and behavioral signals for analysis and auditing. Export complete forensic trails of how the graph was explored.",
-    stat: { v: "JSON", l: "telemetry payloads" },
-  },
-];
-
-function FeatureRow({ f, index }: { f: typeof FEATURES[0]; index: number }) {
-  const [vis, setVis] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) setVis(true); },
-      { threshold: 0.15 }
-    );
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-
-  return (
-    <div
-      ref={ref}
-      className={`group border-b border-[#1e1e1e] transition-all duration-500 row-hover ${
-        vis ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-      }`}
-      style={{ transitionDelay: `${index * 80}ms` }}
-    >
-      <div className="grid grid-cols-[56px_1fr] lg:grid-cols-[56px_260px_1fr_160px] gap-0">
-        {/* Number col */}
-        <div className="border-r border-[#1e1e1e] p-5 flex items-start pt-6">
-          <span className="font-mono text-[10px] text-[#3a3a3a] tracking-widest">{f.id}</span>
-        </div>
-
-        {/* Tag + Title */}
-        <div className="border-r border-[#1e1e1e] p-6 flex flex-col gap-3">
-          <span className="sys-tag text-[9px]">{f.tag}</span>
-          <h3 className="font-display text-3xl lg:text-4xl leading-[0.9] text-[#f2ede6] group-hover:text-[#2196f3] transition-colors duration-300 whitespace-pre-line">
-            {f.title}
-          </h3>
-        </div>
-
-        {/* Description */}
-        <div className="col-span-2 lg:col-span-1 border-r border-[#1e1e1e] p-6 flex items-center">
-          <p className="text-sm text-[#5a5a5a] leading-relaxed max-w-lg">{f.desc}</p>
-        </div>
-
-        {/* Stat */}
-        <div className="hidden lg:flex flex-col items-end justify-center p-6">
-          <div className="font-display text-4xl text-[#2196f3]">{f.stat.v}</div>
-          <div className="font-mono text-[9px] text-[#3a3a3a] tracking-widest mt-1 text-right">{f.stat.l}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function FeaturesSection() {
-  const [vis, setVis] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) setVis(true); },
-      { threshold: 0.05 }
-    );
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
+  const signals = [
+    {
+      title: "Semantic Drift",
+      identifier: "S_sem",
+      desc: "Measures how the user's queries shift semantically over time.",
+    },
+    {
+      title: "Temporal Frequency",
+      identifier: "S_temp",
+      desc: "Measures how rapidly queries are issued relative to recent activity.",
+    },
+    {
+      title: "Entity Focus",
+      identifier: "S_ent",
+      desc: "Measures concentration of attention around entities using entity distribution/entropy.",
+    },
+    {
+      title: "Graph Footprint",
+      identifier: "S_graph",
+      desc: "Measures the user's graph exploration footprint, such as retrieval depth/volume.",
+    }
+  ];
 
   return (
-    <section id="features" className="relative border-t border-[#1e1e1e] scroll-mt-[88px]">
-      <div className="max-w-[1400px] mx-auto px-6 lg:px-12">
-        {/* Section header row */}
-        <div
-          ref={ref}
-          className={`grid grid-cols-[56px_1fr] lg:grid-cols-[56px_260px_1fr_160px] border-b border-[#1e1e1e] transition-all duration-500 ${
-            vis ? "opacity-100" : "opacity-0"
-          }`}
-        >
-          <div className="border-r border-[#1e1e1e] p-5" />
-          <div className="col-span-2 lg:col-span-3 p-6 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-            <div>
-              <span className="sys-tag mb-4 block">CAPABILITIES</span>
-              <h2 className="font-display text-6xl lg:text-8xl text-[#f2ede6] leading-[0.88] tracking-tight">
-                AEGISGRAPH<br />
-                <span className="text-[#3a3a3a]" style={{ WebkitTextStroke: "1px #3a3a3a", color: "transparent" }}>
-                  CAPABILITIES
-                </span>
-              </h2>
-            </div>
-            <p className="font-mono text-[10px] text-[#3a3a3a] tracking-widest max-w-[200px] text-right hidden lg:block">
-              SIX CORE MODULES &nbsp;/ &nbsp;RESEARCH-GRADE &nbsp;/ &nbsp;GRAPH-RAG SECURITY
-            </p>
-          </div>
+    <section className="py-24 bg-slate-950 relative border-t border-slate-900" id="features">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-12 relative z-10">
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          <h2 className="font-sans font-semibold text-3xl md:text-4xl text-slate-50 mb-4 tracking-tight">
+            Four Behavioral Signals
+          </h2>
+          <p className="text-slate-400 text-lg leading-relaxed font-sans">
+            AegisGraph monitors four core telemetry streams during interactions to build a live behavioral profile.
+          </p>
         </div>
 
-        {/* Feature rows */}
-        {FEATURES.map((f, i) => (
-          <FeatureRow key={f.id} f={f} index={i} />
-        ))}
-
-        {/* CTA row */}
-        <div className="grid grid-cols-[56px_1fr] border-b border-[#1e1e1e]">
-          <div className="border-r border-[#1e1e1e]" />
-          <div className="p-6 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-[#3a3a3a]">VIEW ALL CAPABILITIES IN DOCS →</span>
-            <a href="#" className="font-mono text-xs text-[#2196f3] hover:underline tracking-wider">READ RESEARCH PAPER</a>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {signals.map((signal) => (
+            <div
+              key={signal.identifier}
+              className="bg-slate-900 border border-slate-800 p-8 rounded-lg flex flex-col"
+            >
+              <div className="mb-4">
+                <span className="inline-block bg-slate-800 border border-slate-700 text-blue-400 font-mono text-xs px-3 py-1 rounded">
+                  {signal.identifier}
+                </span>
+              </div>
+              <h3 className="font-sans font-semibold text-lg text-slate-200 mb-3">
+                {signal.title}
+              </h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
+                {signal.desc}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
     </section>

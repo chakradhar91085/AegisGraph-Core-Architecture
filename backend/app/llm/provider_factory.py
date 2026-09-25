@@ -16,28 +16,19 @@ _providers: dict[str, BaseLLMProvider] = {}
 
 def get_llm_provider(provider_name: str | None = None) -> BaseLLMProvider:
     """
-    Return the LLM provider for the given name.
+    Return the LLM provider. Since Gemini was removed, this always returns Ollama.
 
     Args:
-        provider_name: 'gemini' or 'ollama'. Defaults to settings.LLM_PROVIDER.
+        provider_name: Ignored. Maintained for signature compatibility.
 
     Returns:
         A BaseLLMProvider instance.
     """
-    name = (provider_name or settings.LLM_PROVIDER).lower().strip()
-
-    if name not in ("gemini", "ollama"):
-        logger.warning(f"Unknown LLM provider '{name}', falling back to '{settings.LLM_PROVIDER}'")
-        name = settings.LLM_PROVIDER.lower().strip()
+    name = "ollama"
 
     if name not in _providers:
-        if name == "gemini":
-            from app.llm.gemini_provider import GeminiProvider
-            _providers[name] = GeminiProvider()
-            logger.info("Initialized GeminiProvider (gemini-flash-latest)")
-        elif name == "ollama":
-            from app.llm.ollama_provider import OllamaProvider
-            _providers[name] = OllamaProvider()
-            logger.info(f"Initialized OllamaProvider ({settings.OLLAMA_MODEL})")
+        from app.llm.ollama_provider import OllamaProvider
+        _providers[name] = OllamaProvider()
+        logger.info(f"Initialized OllamaProvider ({settings.OLLAMA_MODEL})")
 
     return _providers[name]

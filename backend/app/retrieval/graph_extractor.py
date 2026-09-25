@@ -44,8 +44,8 @@ class GraphDataExtractor:
             source_emp = self._get_source_entity(response)
             if source_emp:
                 nodes.append(GraphNode(id=source_emp["id"], label=source_emp["name"], type="Person"))
-                for row in results:
-                    target_id = str(row.get("email_id") or "unknown_email_id")
+                for idx, row in enumerate(results):
+                    target_id = str(row.get("email_id") or f"unknown_email_id_{idx}")
                     target_label = str(row.get("subject") or "No Subject")
                     nodes.append(GraphNode(id=target_id, label=target_label, type="Email"))
                     
@@ -60,8 +60,8 @@ class GraphDataExtractor:
             source_emp = self._get_source_entity(response)
             if source_emp:
                 nodes.append(GraphNode(id=source_emp["id"], label=source_emp["name"], type="Person"))
-                for row in results:
-                    target_id = str(row.get("email") or "unknown_email")
+                for idx, row in enumerate(results):
+                    target_id = str(row.get("email") or f"unknown_email_{idx}")
                     target_name = str(row.get("name") or target_id)
                     nodes.append(GraphNode(id=target_id, label=target_name, type="Person"))
                     edges.append(GraphEdge(
@@ -75,8 +75,8 @@ class GraphDataExtractor:
             source_emp = self._get_source_entity(response)
             if source_emp:
                 nodes.append(GraphNode(id=source_emp["id"], label=source_emp["name"], type="Person"))
-                for row in results:
-                    target_id = str(row.get("topic_name") or "unknown_topic")
+                for idx, row in enumerate(results):
+                    target_id = str(row.get("topic_name") or f"unknown_topic_{idx}")
                     nodes.append(GraphNode(id=target_id, label=target_id, type="Topic"))
                     edges.append(GraphEdge(
                         source=source_emp["id"], 
@@ -86,23 +86,21 @@ class GraphDataExtractor:
                     ))
                     
         elif strategy == "person_connection":
-            # For a path, we have path_names and path_weights. 
             for row in results:
-                names = row.get("path_names", [])
-                weights = row.get("path_weights", [])
-                for name in names:
-                    if not any(n.id == name for n in nodes):
-                        nodes.append(GraphNode(id=name, label=name, type="Person"))
-                for i in range(len(names) - 1):
-                    source = names[i]
-                    target = names[i+1]
-                    weight = weights[i] if i < len(weights) else None
-                    edges.append(GraphEdge(
-                        source=source,
-                        target=target,
-                        type="COMMUNICATES_FREQUENTLY_WITH",
-                        weight=weight
-                    ))
+                from_email = row.get("from_email")
+                to_email = row.get("to_email")
+                if not from_email or not to_email:
+                    continue
+                if not any(n.id == from_email for n in nodes):
+                    nodes.append(GraphNode(id=from_email, label=from_email, type="Person"))
+                if not any(n.id == to_email for n in nodes):
+                    nodes.append(GraphNode(id=to_email, label=to_email, type="Person"))
+                edges.append(GraphEdge(
+                    source=from_email,
+                    target=to_email,
+                    type="COMMUNICATED_VIA_EMAIL",
+                    weight=1.0
+                ))
         
         # Deduplicate nodes and edges just in case
         unique_nodes = list({n.id: n for n in nodes}.values())
