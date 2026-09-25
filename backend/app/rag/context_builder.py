@@ -108,7 +108,6 @@ class ContextBuilder:
             part = (
                 f"- Subject: \"{row.get('subject', '')}\"\n"
                 f"  Date: {row.get('timestamp', '')}\n"
-                f"  Folder: {row.get('source_folder', '')}\n"
                 f"  Body: {str(row.get('body', 'No content available'))[:1000]}"
             )
             parts.append(part)

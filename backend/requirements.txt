@@ -8,3 +8,5 @@ pydantic-settings>=2.1.0
 sentence-transformers
 sqlalchemy>=2.0.25
 asyncpg>=0.29.0
+
+pyjwt>=2.8

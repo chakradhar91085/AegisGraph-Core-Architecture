@@ -1,10 +1,18 @@
+import { useEffect, useState } from 'react';
 import { useChat } from '../contexts/ChatContext';
+import { chatApi } from '../api';
 import { Shield, ShieldAlert, Activity, User } from 'lucide-react';
 import { ChatPanel } from '../components/ChatPanel';
 import { NetworkGraph } from '../components/NetworkGraph';
 
 export function QueryPlayground() {
-  const { messages, loading, error, role, setRole, sendMessage } = useChat();
+  const { messages, loading, error, sendMessage } = useChat();
+  const [identity, setIdentity] = useState<{ user_id: string; role: string } | null>(null);
+
+  // The role is assigned by the server from the signed-in account; it is shown, never chosen.
+  useEffect(() => {
+    chatApi.me().then(setIdentity).catch(() => setIdentity(null));
+  }, []);
 
   const telemetryHistory = messages
     .filter(m => m.sender === 'agent' && m.telemetry)
@@ -44,15 +52,8 @@ export function QueryPlayground() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[10px] text-[#5a5a5a] font-mono uppercase mb-0.5">Current Role</div>
-              <select 
-                value={role}
-                onChange={(e) => setRole(e.target.value as any)}
-                className="w-full bg-[#141414] border border-[#2e2e2e] rounded-sm px-2 py-0.5 text-xs font-mono font-medium text-[#2196f3] outline-none cursor-pointer"
-              >
-                <option value="Standard" className="bg-[#0e0e0e] text-[#f2ede6]">Standard</option>
-                <option value="Analyst" className="bg-[#0e0e0e] text-[#f2ede6]">Analyst</option>
-                <option value="Auditor" className="bg-[#0e0e0e] text-[#f2ede6]">Auditor</option>
-              </select>
+              <div className="text-sm font-mono font-medium text-[#2196f3]">{identity?.role ?? '...'}</div>
+              <div className="text-[9px] text-[#5a5a5a] font-mono truncate" title="Your Clerk user id (used in SECURITY_USER_ROLES)">{identity?.user_id ?? ''}</div>
             </div>
           </div>
         </div>

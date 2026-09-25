@@ -47,4 +47,7 @@ class SessionStore:
         state = self.get_or_create_session(session_id)
         state.last_smoothed_risk = risk
 
+    def reset(self, key: str):
+        self.sessions.pop(key, None)
+
 session_store = SessionStore()

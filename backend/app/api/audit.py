@@ -1,15 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import logging
 from sqlalchemy.future import select
 from app.db.postgres import AsyncSessionLocal
+from app.security.auth import require_admin
 from app.security.db_models import AuditSession, AuditQuery
-import datetime
 
-router = APIRouter()
+# Every audit route exposes other users' queries, so all of them are admin-only.
+router = APIRouter(dependencies=[Depends(require_admin)])
 logger = logging.getLogger(__name__)
 
 @router.get("/audit/sessions")
-async def get_audit_sessions(limit: int = 50):
+async def get_audit_sessions(limit: int = Query(50, ge=1, le=500)):
     """
     Retrieve the most recent audit sessions.
     """
@@ -18,7 +19,7 @@ async def get_audit_sessions(limit: int = 50):
             stmt = select(AuditSession).order_by(AuditSession.started_at.desc()).limit(limit)
             result = await db.execute(stmt)
             sessions = result.scalars().all()
-            
+
             # Serialize for JSON
             return {
                 "sessions": [
@@ -39,7 +40,7 @@ async def get_audit_sessions(limit: int = 50):
             }
     except Exception as e:
         logger.error(f"Error fetching sessions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch audit sessions")
 
 @router.get("/audit/sessions/{session_id}/queries")
 async def get_session_queries(session_id: str):
@@ -51,7 +52,7 @@ async def get_session_queries(session_id: str):
             stmt = select(AuditQuery).where(AuditQuery.session_id == session_id).order_by(AuditQuery.timestamp.asc())
             result = await db.execute(stmt)
             queries = result.scalars().all()
-            
+
             return {
                 "queries": [
                     {
@@ -74,35 +75,4 @@ async def get_session_queries(session_id: str):
             }
     except Exception as e:
         logger.error(f"Error fetching queries: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/audit/sessions/{session_id}/end")
-async def end_session(session_id: str):
-    """
-    Mark a session as completed.
-    """
-    try:
-        async with AsyncSessionLocal() as db:
-            stmt = select(AuditSession).where(AuditSession.id == session_id)
-            result = await db.execute(stmt)
-            session = result.scalar_one_or_none()
-            
-            if not session:
-                raise HTTPException(status_code=404, detail="Session not found")
-                
-            if session.status != "COMPLETED":
-                session.status = "COMPLETED"
-                session.ended_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-                await db.commit()
-                
-            return {"status": "success", "session_id": session_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error ending session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/audit")
-async def get_audit_logs(limit: int = 100):
-    """Legacy endpoint for backward compatibility during transition if needed"""
-    return {"logs": []}
+        raise HTTPException(status_code=500, detail="Failed to fetch session queries")

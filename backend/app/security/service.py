@@ -7,29 +7,38 @@ from app.security.embeddings import embedding_provider
 from app.security.signals import signals_calculator
 from app.security.risk import risk_engine
 from app.security.policy import policy_engine
+from app.security.gates import gate_score
 from app.retrieval.schemas import RetrievalResponse
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class AegisSecurityService:
-    async def observe_query(self, session_id: str, query: str, role: str = "Standard") -> Dict[str, Any]:
+    async def observe_query(self, session_id: str, query: str, role: str = "Standard", user_id: str | None = None) -> Dict[str, Any]:
         """
         Step 1: Pre-retrieval observation.
         Fetches embedding, calculates the semantic-focus signal over the
         recent query window, returns partial context.
+
+        Risk memory is keyed by user_id (falling back to session_id), so a
+        client cannot shed its risk by starting a new session.
         """
         current_time = time.time()
+        risk_key = user_id or session_id
 
         # Cleanup old history based on temporal window
-        session_store.cleanup_old_history(session_id, current_time)
+        session_store.cleanup_old_history(risk_key, current_time)
 
         # Fetch current embedding
         current_embedding = await embedding_provider.get_embedding(query)
 
         # Semantic focus looks at a small sliding window of recent queries
         # (paper Eq. 1), not just the single previous one.
-        state = session_store.get_or_create_session(session_id)
+        state = session_store.get_or_create_session(risk_key)
+        if state.last_seen:
+            idle = current_time - state.last_seen
+            state.last_smoothed_risk *= 0.5 ** (idle / settings.SECURITY_RISK_HALF_LIFE_SECONDS)
+        state.last_seen = current_time
         window_size = settings.SECURITY_SEMANTIC_WINDOW_SIZE
         prior_count = max(0, window_size - 1)
         prior_embeddings = (
@@ -39,11 +48,15 @@ class AegisSecurityService:
         window_embeddings = prior_embeddings + ([current_embedding] if current_embedding else [])
         semantic_focus = signals_calculator.calculate_semantic_focus(window_embeddings)
 
-        # Calculate Adaptive Policy based on the smoothed risk BEFORE this query
-        current_policy = policy_engine.calculate_policy(state.last_smoothed_risk, role)
+        # Adaptive policy uses the smoothed risk BEFORE this query, raised to
+        # the hard-gate floor if this query itself is an obvious attack.
+        gate = gate_score(query)
+        current_policy = policy_engine.calculate_policy(max(state.last_smoothed_risk, gate), role)
 
         return {
             "session_id": session_id,
+            "risk_key": risk_key,
+            "gate": gate,
             "query": query,
             "role": role,
             "timestamp": current_time,
@@ -58,6 +71,7 @@ class AegisSecurityService:
         Calculates remaining signals (temporal, entity, graph), fuses risk, and updates session.
         """
         session_id = ctx["session_id"]
+        risk_key = ctx["risk_key"]
         current_time = ctx["timestamp"]
         
         # Entities come from whatever the retrieval layer already resolved
@@ -74,7 +88,7 @@ class AegisSecurityService:
         
         # Get history for temporal and entity calculations.
         # History currently does NOT include the CURRENT query yet.
-        state = session_store.get_or_create_session(session_id)
+        state = session_store.get_or_create_session(risk_key)
         history = [q for q in state.history if q.timestamp >= (current_time - settings.SECURITY_TEMPORAL_WINDOW_SECONDS)]
 
         # Temporal frequency: exponential decay on the gap since the last
@@ -101,11 +115,12 @@ class AegisSecurityService:
         )
         
         # Fuse Risk
-        instantaneous_risk = risk_engine.calculate_instantaneous_risk(signals)
+        gate = ctx["gate"]
+        instantaneous_risk = max(risk_engine.calculate_instantaneous_risk(signals), gate)
         
-        # EWMA Smoothing
+        # EWMA Smoothing (a hard gate is a floor the smoothed score cannot dip below)
         prev_smoothed = state.last_smoothed_risk
-        smoothed_risk = risk_engine.calculate_ewma(instantaneous_risk, prev_smoothed)
+        smoothed_risk = max(risk_engine.calculate_ewma(instantaneous_risk, prev_smoothed), gate)
         
         # Persist to Session Store
         record = QueryRecord(
@@ -114,8 +129,8 @@ class AegisSecurityService:
             embedding=ctx["embedding"],
             entities=entities
         )
-        session_store.add_query_record(session_id, record)
-        session_store.update_smoothed_risk(session_id, smoothed_risk)
+        session_store.add_query_record(risk_key, record)
+        session_store.update_smoothed_risk(risk_key, smoothed_risk)
         retrieval_executed = retrieval_response.strategy not in ("blocked_by_policy", "restricted_by_policy", "none", "error")
         
         # Return Telemetry

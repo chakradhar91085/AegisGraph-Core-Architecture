@@ -104,7 +104,9 @@ def _test_entity_focus():
     # 1 entity repeated
     hist1 = [QueryRecord(timestamp=0, query="", entities=["Enron"])] * 3
     ef2 = signals_calculator.calculate_entity_focus(hist1)
-    report("Repeated single entity gives 1.0 focus", ef2 == 1.0)
+    report("Three mentions of one entity give 0.75 focus (persistence factor)", ef2 == 0.75, f"Got: {ef2}")
+    ef2_full = signals_calculator.calculate_entity_focus(hist1 + hist1[:1])
+    report("Four mentions of one entity give full 1.0 focus", ef2_full == 1.0, f"Got: {ef2_full}")
     
     # Diverse entities
     hist2 = [

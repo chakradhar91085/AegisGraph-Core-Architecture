@@ -1,6 +1,4 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
-from typing import Optional
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AegisGraph"
@@ -27,13 +25,25 @@ class Settings(BaseSettings):
     MAX_CHUNK_CHARS: int = 1500
     MAX_CONTEXT_CHARS: int = 8000
 
-    # Postgres Configuration
-    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:123456@localhost:5432/aegisgraph")
+    # Postgres Configuration (required: set in .env, never hardcode credentials)
+    DATABASE_URL: str
+
+    # Authentication: the frontend signs users in with Clerk; the backend
+    # verifies the Clerk session token. CLERK_ISSUER is the Clerk "Frontend API
+    # URL", e.g. https://primary-cow-3262.clerk.accounts.dev
+    CLERK_ISSUER: str = ""
+    # Comma-separated "clerk_user_id:Role" pairs (Role = Auditor | Analyst | Standard).
+    # Any signed-in user not listed here is "Standard". Auditor is also the admin role.
+    SECURITY_USER_ROLES: str = ""
+    # Demo convenience: lets a signed-in user reset their own remembered risk
+    # (the "New Session" button). Keep False outside local demos.
+    DEMO_ALLOW_RISK_RESET: bool = False
 
     # Security & Telemetry Settings
-    # Server-only secret used to sign session tickets (role + session id).
-    # Override in .env for any real deployment; the default is fine for local dev.
-    SECURITY_SESSION_SECRET: str = "dev-insecure-change-me"
+    # Server-only secret used to sign session tickets (required: set in .env).
+    SECURITY_SESSION_SECRET: str
+    # A user's remembered risk halves after this many idle seconds.
+    SECURITY_RISK_HALF_LIFE_SECONDS: float = 300.0
 
     # Research-aligned semantic drift model
     SECURITY_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"

@@ -53,3 +53,5 @@ class SessionState(BaseModel):
     session_id: str
     history: List[QueryRecord] = Field(default_factory=list)
     last_smoothed_risk: float = 0.0
+    last_seen: float = 0.0
+    last_entity: Optional[str] = None

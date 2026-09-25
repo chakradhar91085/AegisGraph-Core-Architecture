@@ -1,13 +1,12 @@
 """
 AegisGraph — Session Ticket Issuer/Verifier.
 
-Issues a tamper-proof, server-signed "ticket" binding a session_id to a role.
-Chat requests must present this ticket to continue an existing session; the
-role and session identity are always read from the verified ticket, never
-from a client-supplied field, so a client cannot forge a role or hijack /
-reset another session's accumulated risk mid-conversation.
+A ticket is a server-signed token binding an audit-session id to the signed-in
+user who owns it. It lets a user continue (or end) their own chat session; a
+ticket presented by any other user is rejected. Role and risk state never come
+from the ticket — they are looked up server-side from the authenticated user.
 
-Format: base64url(json({"sid": ..., "role": ..., "exp": ...})) + "." + hmac_hex
+Format: base64url(json({"sid": ..., "uid": ..., "exp": ...})) + "." + hmac_hex
 """
 import base64
 import hashlib
@@ -27,45 +26,30 @@ def _sign(payload_b64: str) -> str:
     return hmac.new(key, payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def issue_ticket(role: str, session_id: Optional[str] = None, ttl_seconds: int = DEFAULT_TICKET_TTL_SECONDS) -> Tuple[str, str]:
-    """
-    Create a new signed ticket. session_id is always server-generated for a
-    brand-new session; callers never pass a client-supplied id in as the
-    identity of a *continuing* session (that's the vulnerability this closes).
-
-    Returns (ticket, session_id).
-    """
+def issue_ticket(user_id: str, session_id: Optional[str] = None, ttl_seconds: int = DEFAULT_TICKET_TTL_SECONDS) -> Tuple[str, str]:
+    """Create a signed ticket for user_id. Returns (ticket, session_id)."""
     sid = session_id or str(uuid.uuid4())
-    payload = {"sid": sid, "role": role, "exp": time.time() + ttl_seconds}
+    payload = {"sid": sid, "uid": user_id, "exp": time.time() + ttl_seconds}
     payload_b64 = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("utf-8")
-    signature = _sign(payload_b64)
-    return f"{payload_b64}.{signature}", sid
+    return f"{payload_b64}.{_sign(payload_b64)}", sid
 
 
-def verify_ticket(token: str) -> Optional[Tuple[str, str]]:
+def verify_ticket(token: str, user_id: str) -> Optional[str]:
     """
-    Verify a ticket and return (session_id, role) if valid and unexpired.
-    Returns None on any failure (missing, malformed, tampered, expired) —
-    callers should treat that the same as "no ticket", i.e. start fresh.
+    Return the session_id if the ticket is genuine, unexpired and owned by
+    user_id; otherwise None (callers then start a fresh session).
     """
     if not token or "." not in token:
         return None
 
     payload_b64, _, signature = token.partition(".")
-    expected_signature = _sign(payload_b64)
-
-    if not hmac.compare_digest(signature, expected_signature):
+    if not hmac.compare_digest(signature, _sign(payload_b64)):
         return None
 
     try:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8"))
-        sid = payload["sid"]
-        role = payload["role"]
-        exp = payload["exp"]
+        if payload["uid"] != user_id or time.time() > payload["exp"]:
+            return None
+        return payload["sid"]
     except (ValueError, KeyError, TypeError):
         return None
-
-    if time.time() > exp:
-        return None
-
-    return sid, role

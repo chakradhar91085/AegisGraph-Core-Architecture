@@ -64,11 +64,8 @@ class PolicyEngine:
         if level == RiskLevel.HIGH:
             response_mode = ResponseMode.BLOCK
         elif level == RiskLevel.MEDIUM:
-            # MASK data for analysts/standard, RESTRICT for Auditors
-            if role == "Auditor":
-                response_mode = ResponseMode.RESTRICT
-            else:
-                response_mode = ResponseMode.MASK
+            # Every role is masked at MEDIUM; privilege never reduces scrutiny.
+            response_mode = ResponseMode.MASK
         else:
             response_mode = ResponseMode.ALLOW
         

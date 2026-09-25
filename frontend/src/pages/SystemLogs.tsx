@@ -1,5 +1,6 @@
 import { ShieldAlert, Fingerprint, RefreshCcw, ChevronDown, ChevronRight, Activity, Clock } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import axios from 'axios';
 import { auditApi } from '../api';
 import type { AuditSession, AuditQuery } from '../api';
 
@@ -8,6 +9,7 @@ export function SystemLogs() {
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [sessionQueries, setSessionQueries] = useState<Record<string, AuditQuery[]>>({});
   const [loading, setLoading] = useState(true);
+  const [denied, setDenied] = useState(false);
   
   // Use a ref to track if we should keep polling
   const isMounted = useRef(true);
@@ -17,7 +19,9 @@ export function SystemLogs() {
       if (!silent) setLoading(true);
       const data = await auditApi.getSessions(50);
       setSessions(data);
+      setDenied(false);
     } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 403) setDenied(true);
       console.error("Failed to fetch sessions:", err);
     } finally {
       if (!silent) setLoading(false);
@@ -111,7 +115,7 @@ export function SystemLogs() {
             </div>
             <p className="text-sm font-display uppercase tracking-widest text-[#8a8a8a] mb-1 z-10">No Audit Events Found</p>
             <p className="text-xs font-mono max-w-md text-center z-10">
-              The PostgreSQL audit log is currently empty. Run some queries to generate telemetry.
+              {denied ? 'Audit logs are restricted to the Auditor role.' : 'The PostgreSQL audit log is currently empty. Run some queries to generate telemetry.'}
             </p>
           </div>
         ) : (

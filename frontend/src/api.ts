@@ -2,6 +2,18 @@ import axios from 'axios';
 
 const API_BASE = 'http://localhost:8000/api/v1';
 
+// Every request carries the signed-in user's Clerk session token; the backend
+// verifies it and decides the user's role. Nothing here can choose a role.
+let tokenGetter: (() => Promise<string | null>) | null = null;
+export const setTokenGetter = (getter: () => Promise<string | null>) => {
+  tokenGetter = getter;
+};
+axios.interceptors.request.use(async (config) => {
+  const token = tokenGetter ? await tokenGetter() : null;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 export interface AdaptivePolicy {
   risk_score: number;
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -37,7 +49,6 @@ export interface TelemetryEvent {
 export interface ChatRequest {
   query: string;
   session_token?: string;
-  role?: string;
 }
 
 export interface GraphNode {
@@ -77,14 +88,26 @@ export const chatApi = {
   async sendMessage(
     query: string,
     sessionToken?: string,
-    role: string = 'Standard',
   ): Promise<ChatResponse> {
-    const payload: ChatRequest = { query, role };
+    const payload: ChatRequest = { query };
     if (sessionToken) {
       payload.session_token = sessionToken;
     }
     const response = await axios.post<ChatResponse>(`${API_BASE}/chat`, payload);
     return response.data;
+  },
+
+  async me(): Promise<{ user_id: string; role: string }> {
+    return (await axios.get(`${API_BASE}/me`)).data;
+  },
+
+  async endSession(sessionToken: string): Promise<void> {
+    await axios.post(`${API_BASE}/session/end`, { session_token: sessionToken });
+  },
+
+  // Only takes effect when the server runs with DEMO_ALLOW_RISK_RESET=true.
+  async resetRisk(): Promise<void> {
+    await axios.post(`${API_BASE}/session/reset`);
   },
 };
 
@@ -118,11 +141,6 @@ export interface AuditQuery {
 }
 
 export const auditApi = {
-  async getAuditLogs(limit: number = 100): Promise<TelemetryEvent[]> {
-    const response = await axios.get<{logs: TelemetryEvent[]}>(`${API_BASE}/audit?limit=${limit}`);
-    return response.data.logs;
-  },
-  
   async getSessions(limit: number = 50): Promise<AuditSession[]> {
     const response = await axios.get<{sessions: AuditSession[]}>(`${API_BASE}/audit/sessions?limit=${limit}`);
     return response.data.sessions;
@@ -132,8 +150,4 @@ export const auditApi = {
     const response = await axios.get<{queries: AuditQuery[]}>(`${API_BASE}/audit/sessions/${sessionId}/queries`);
     return response.data.queries;
   },
-  
-  async endSession(sessionId: string): Promise<void> {
-    await axios.post(`${API_BASE}/audit/sessions/${sessionId}/end`);
-  }
 };

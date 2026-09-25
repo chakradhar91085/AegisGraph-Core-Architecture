@@ -80,13 +80,17 @@ class Signals:
             return 0.0 # Insufficient history for entity concentration
             
         unique_entities = set(all_entities)
-        
-        # If exactly 1 unique entity, entropy is 0, so focus is 1.0
+        total = float(len(all_entities))
+
+        # Persistence factor (paper Eq. 5): a couple of mentions of one person is
+        # normal use, so concentration only reaches full weight after 4 mentions.
+        persistence = min(1.0, total / 4.0)
+
+        # If exactly 1 unique entity, entropy is 0, so concentration is full
         if len(unique_entities) == 1:
-            return 1.0
+            return persistence
             
         # Calculate entropy
-        total = float(len(all_entities))
         entropy = 0.0
         for e in unique_entities:
             p = all_entities.count(e) / total
@@ -98,9 +102,9 @@ class Signals:
         max_entropy = math.log(len(unique_entities) + epsilon)
         
         if max_entropy <= 0:
-            return 1.0
+            return persistence
             
-        focus = 1.0 - (entropy / max_entropy)
+        focus = (1.0 - (entropy / max_entropy)) * persistence
         return float(max(0.0, min(1.0, focus)))
 
     @staticmethod
@@ -117,7 +121,9 @@ class Signals:
             "email_chunks": 3,
             "chunk_entities": 4,
             "person_connection": 4,
-            "entity_relationships": 5
+            "entity_relationships": 5,
+            "all_employees": 2,
+            "semantic_search": 3
         }
         
         d_t = depth_map.get(intent, 0)

@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { chatApi, auditApi } from '../api';
+import { chatApi } from '../api';
 import type { TelemetryEvent, GraphVisualizationPayload } from '../api';
-
-export type RoleType = 'Standard' | 'Analyst' | 'Auditor';
 
 export interface Message {
   id: string;
@@ -17,8 +15,6 @@ interface ChatContextType {
   messages: Message[];
   loading: boolean;
   error: string | null;
-  role: RoleType;
-  setRole: (role: RoleType) => void; // switches role AND starts a fresh session
 
   sendMessage: (text: string) => Promise<void>;
   clearSession: () => void;
@@ -33,7 +29,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [role, setRole] = useState<RoleType>('Standard');
 
   const [activeGraphData, setActiveGraphData] = useState<GraphVisualizationPayload | null>(null);
 
@@ -45,7 +40,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const sessionToken = sessionStorage.getItem('aegis_session_token') || undefined;
-      const response = await chatApi.sendMessage(text, sessionToken, role);
+      const response = await chatApi.sendMessage(text, sessionToken);
 
       // The server renews the ticket on every response; always store the
       // latest one so the session can continue securely.
@@ -72,9 +67,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [role]);
+  }, []);
 
   const clearSession = useCallback(() => {
+    // Best effort: only honored by servers running in demo mode.
+    chatApi.resetRisk().catch(() => {});
     sessionStorage.removeItem('aegis_session_token');
     sessionStorage.removeItem('aegis_session_id');
     setMessages([]);
@@ -82,19 +79,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setActiveGraphData(null);
   }, []);
 
-  // Changing role mid-conversation isn't allowed server-side (the role is
-  // locked into the session ticket at creation time) — so switching roles
-  // here intentionally starts a fresh, zero-risk session under the new role.
-  const changeRole = useCallback((newRole: RoleType) => {
-    setRole(newRole);
-    clearSession();
-  }, [clearSession]);
-
   const endActiveSession = useCallback(async () => {
-    const sessionId = sessionStorage.getItem('aegis_session_id');
-    if (sessionId) {
+    const sessionToken = sessionStorage.getItem('aegis_session_token');
+    if (sessionToken) {
       try {
-        await auditApi.endSession(sessionId);
+        await chatApi.endSession(sessionToken);
       } catch (err) {
         console.error('Failed to end session on backend', err);
       }
@@ -104,7 +93,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ChatContext.Provider value={{
-      messages, loading, error, role, setRole: changeRole,
+      messages, loading, error,
       sendMessage, clearSession, endActiveSession,
       activeGraphData, setActiveGraphData
     }}>
