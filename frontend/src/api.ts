@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = 'http://localhost:8001/api/v1';
 
 // Every request carries the signed-in user's Clerk session token; the backend
 // verifies it and decides the user's role. Nothing here can choose a role.

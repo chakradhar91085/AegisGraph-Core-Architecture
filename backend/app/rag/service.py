@@ -127,9 +127,12 @@ class GraphRAGService:
         # ── Security: Post-retrieval Observation (Phase 4A) ──
         telemetry_event = await aegis_security.calculate_risk(security_ctx, retrieval_response)
 
+        # Remember a name, not an e-mail: an "@" in the rewritten follow-up would
+        # make the intent classifier treat it as a plain employee lookup.
         for entity in retrieval_response.resolved_entities or []:
             if entity.status == ResolutionStatus.FOUND and entity.matches and entity.matches[0].get("email"):
-                state.last_entity = entity.matches[0]["email"]
+                email = entity.matches[0]["email"]
+                state.last_entity = next(iter(names_from_text(email)), None) or entity.matches[0].get("name") or email
                 break
 
         # ── 3. Short-circuit on security restriction ──
@@ -141,6 +144,24 @@ class GraphRAGService:
                 "retrieval": {
                     "attempted": True,
                     "status": "restricted",
+                    "result_count": 0,
+                    "strategy": retrieval_response.strategy
+                },
+                "telemetry": telemetry_event.model_dump(),
+                "llm_provider": provider_tag,
+            }
+
+        # A data question that retrieved nothing is answered in code: given empty
+        # evidence the local LLM invents people instead of saying it found nothing.
+        if retrieval_response.result_count == 0 and retrieval_response.intent != RetrievalIntent.UNSUPPORTED.value:
+            await audit_logger.log_event_async(telemetry_event.model_dump(), llm_provider=provider_tag)
+            reason = retrieval_response.metadata.get("reason", "")
+            return {
+                "answer": f"I couldn't find that in the knowledge graph. {reason}".strip(),
+                "intent": retrieval_response.intent,
+                "retrieval": {
+                    "attempted": True,
+                    "status": "no_results",
                     "result_count": 0,
                     "strategy": retrieval_response.strategy
                 },
